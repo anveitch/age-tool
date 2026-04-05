@@ -1,0 +1,15 @@
+# Test keys - never commit private keys
+key1.txt
+key2.txt
+*.age
+
+# Claude Code
+CLAUDE.md
+
+# Go build artifacts
+*.exe
+*.out
+/bin/
+
+# Mac OS
+.DS_Store
