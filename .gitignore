@@ -13,3 +13,14 @@ CLAUDE.md
 
 # Mac OS
 .DS_Store
+
+# Test files
+TestMessage.txt
+TestMessage.txt.orig
+*.orig
+
+# Public keys
+*.pub
+
+# Compiled binary
+age-tool
