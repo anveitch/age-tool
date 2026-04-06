@@ -1,7 +1,10 @@
 # Test keys - never commit private keys
-key1.txt
-key2.txt
+key1.priv
+key2.priv
 *.age
+
+#Public keys
+*.pub
 
 # Claude Code
 CLAUDE.md
