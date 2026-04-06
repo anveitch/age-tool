@@ -27,3 +27,4 @@ TestMessage.txt.orig
 
 # Compiled binary
 age-tool
+*.txt
