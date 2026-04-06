@@ -2,9 +2,11 @@
 key1.priv
 key2.priv
 *.age
-
+*.priv
 #Public keys
 *.pub
+
+
 
 # Claude Code
 CLAUDE.md
