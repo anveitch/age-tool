@@ -212,7 +212,15 @@ func encrypt(reader *bufio.Reader) {
 	for i, f := range files {
 		fmt.Printf("  %d) %s\n", i+1, f)
 	}
-	file := promptSelection(reader, "Select file to encrypt", len(files))
+	// Add a clearly separated "Go Back" option at the end of the list
+	fmt.Println()
+	fmt.Printf("  %d) <- Go Back\n", len(files)+1)
+
+	file := promptSelection(reader, "Select file to encrypt", len(files)+1)
+	// If the user selected the last option, return to the main menu
+	if file == len(files) {
+		return
+	}
 	inputPath := files[file]
 
 	// List all .pub key files for the user to choose a recipient
@@ -277,7 +285,15 @@ func decrypt(reader *bufio.Reader) {
 	for i, f := range ageFiles {
 		fmt.Printf("  %d) %s\n", i+1, f)
 	}
-	fileIdx := promptSelection(reader, "Select file to decrypt", len(ageFiles))
+	// Add a clearly separated "Go Back" option at the end of the list
+	fmt.Println()
+	fmt.Printf("  %d) <- Go Back\n", len(ageFiles)+1)
+
+	fileIdx := promptSelection(reader, "Select file to decrypt", len(ageFiles)+1)
+	// If the user selected the last option, return to the main menu
+	if fileIdx == len(ageFiles) {
+		return
+	}
 	inputPath := ageFiles[fileIdx]
 
 	// Scan the current directory for .priv key files and present them as a list
