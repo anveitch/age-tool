@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -19,6 +20,10 @@ import (
 	"filippo.io/age"
 	"golang.org/x/term"
 )
+
+// nicknameFile is the JSON config file that stores key nicknames.
+// It maps filenames (e.g. "work.priv") to human-readable nicknames.
+const nicknameFile = "keys.json"
 
 // tempFileRegistry tracks temporary decrypted key files so they can be
 // cleaned up on exit (normal return, defer, or signal). Access is
@@ -57,6 +62,42 @@ func cleanupTempFiles() {
 	}
 	tempFiles = nil
 }
+
+// ─── Nickname helpers ───────────────────────────────────────────────────────
+
+// loadNicknames reads the keys.json file and returns the filename-to-nickname
+// mapping. Returns an empty map if the file does not exist or cannot be parsed.
+func loadNicknames() map[string]string {
+	data, err := os.ReadFile(nicknameFile)
+	if err != nil {
+		return make(map[string]string)
+	}
+	var nicks map[string]string
+	if err := json.Unmarshal(data, &nicks); err != nil {
+		return make(map[string]string)
+	}
+	return nicks
+}
+
+// saveNicknames writes the nickname map to keys.json with readable formatting.
+func saveNicknames(nicks map[string]string) error {
+	data, err := json.MarshalIndent(nicks, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(nicknameFile, append(data, '\n'), 0644)
+}
+
+// formatKeyName returns "Nickname (filename)" if the file has a nickname,
+// or just "filename" if it does not.
+func formatKeyName(filename string, nicks map[string]string) string {
+	if nick, ok := nicks[filename]; ok && nick != "" {
+		return fmt.Sprintf("%s (%s)", nick, filename)
+	}
+	return filename
+}
+
+// ─── Main ───────────────────────────────────────────────────────────────────
 
 func main() {
 	// Defer cleanup as a secondary safety net for normal exit paths
@@ -121,6 +162,9 @@ func checkUnencryptedKeys() {
 		return
 	}
 
+	// Load nicknames so warnings can include the friendly name
+	nicks := loadNicknames()
+
 	// Collect the names of any unencrypted private key files
 	var openKeys []string
 	for _, f := range privFiles {
@@ -138,7 +182,7 @@ func checkUnencryptedKeys() {
 		fmt.Println()
 		fmt.Println("!! WARNING: Unencrypted private key(s) detected !!")
 		for _, k := range openKeys {
-			fmt.Printf("   - %s\n", k)
+			fmt.Printf("   - %s\n", formatKeyName(k, nicks))
 		}
 		fmt.Println("These keys are NOT passphrase-protected and cannot be used for decryption.")
 		fmt.Println("Use Key Management > Encrypt a Private Key to secure them.")
@@ -184,9 +228,11 @@ func encrypt(reader *bufio.Reader) {
 		return
 	}
 
+	// Load nicknames and display public keys with their friendly names
+	nicks := loadNicknames()
 	fmt.Println("\nPublic key files:")
 	for i, f := range pubFiles {
-		fmt.Printf("  %d) %s\n", i+1, f)
+		fmt.Printf("  %d) %s\n", i+1, formatKeyName(f, nicks))
 	}
 	keyIdx := promptSelection(reader, "Select public key", len(pubFiles))
 
@@ -247,9 +293,11 @@ func decrypt(reader *bufio.Reader) {
 		return
 	}
 
+	// Load nicknames and display private keys with their friendly names
+	nicks := loadNicknames()
 	fmt.Println("\nPrivate key files:")
 	for i, f := range privFiles {
-		fmt.Printf("  %d) %s\n", i+1, f)
+		fmt.Printf("  %d) %s\n", i+1, formatKeyName(f, nicks))
 	}
 	keyIdx := promptSelection(reader, "Select private key", len(privFiles))
 	keyPath := privFiles[keyIdx]
@@ -315,8 +363,9 @@ func keyManagement(reader *bufio.Reader) {
 		fmt.Println("2) Generate New Key Pair")
 		fmt.Println("3) Encrypt a Private Key")
 		fmt.Println("4) Delete a Key Pair")
-		fmt.Println("5) Back")
-		fmt.Print("\nChoose [1-5]: ")
+		fmt.Println("5) Nickname a Key")
+		fmt.Println("6) Back")
+		fmt.Print("\nChoose [1-6]: ")
 
 		choice, _ := reader.ReadString('\n')
 		choice = strings.TrimSpace(choice)
@@ -331,6 +380,8 @@ func keyManagement(reader *bufio.Reader) {
 		case "4":
 			deleteKeyPair(reader)
 		case "5":
+			nicknameKey(reader)
+		case "6":
 			return
 		default:
 			fmt.Fprintln(os.Stderr, "Invalid choice, try again.")
@@ -340,7 +391,8 @@ func keyManagement(reader *bufio.Reader) {
 
 // listKeys scans the current directory for .pub and .priv files and displays
 // them as paired entries where possible. Each .priv file is labelled with
-// [ENCRYPTED] or [OPEN] to indicate its protection status.
+// [ENCRYPTED] or [OPEN] to indicate its protection status. Nicknames are
+// shown alongside each file if set.
 func listKeys() {
 	pubFiles, _ := listFiles(".", func(name string) bool {
 		return strings.HasSuffix(name, ".pub")
@@ -353,6 +405,9 @@ func listKeys() {
 		fmt.Println("\nNo key files found in current directory.")
 		return
 	}
+
+	// Load nicknames for display
+	nicks := loadNicknames()
 
 	// Build a set of unique key base names from both .pub and .priv files
 	baseNames := make(map[string]bool)
@@ -376,24 +431,25 @@ func listKeys() {
 	for _, base := range sorted {
 		fmt.Printf("  %s\n", base)
 
-		// Check for the public key file
-		if fileExists(base + ".pub") {
-			fmt.Printf("    Public:  %s.pub\n", base)
+		// Check for the public key file and show its nickname
+		pubPath := base + ".pub"
+		if fileExists(pubPath) {
+			fmt.Printf("    Public:  %s\n", formatKeyName(pubPath, nicks))
 		} else {
 			fmt.Printf("    Public:  (not found)\n")
 		}
 
-		// Check for the private key file and its encryption status
+		// Check for the private key file, its encryption status, and nickname
 		privPath := base + ".priv"
 		if fileExists(privPath) {
 			encrypted, err := isAgeEncrypted(privPath)
+			status := "[ENCRYPTED]"
 			if err != nil {
-				fmt.Printf("    Private: %s [ERROR: %v]\n", privPath, err)
-			} else if encrypted {
-				fmt.Printf("    Private: %s [ENCRYPTED]\n", privPath)
-			} else {
-				fmt.Printf("    Private: %s [OPEN]\n", privPath)
+				status = fmt.Sprintf("[ERROR: %v]", err)
+			} else if !encrypted {
+				status = "[OPEN]"
 			}
+			fmt.Printf("    Private: %s %s\n", formatKeyName(privPath, nicks), status)
 		} else {
 			fmt.Printf("    Private: (not found)\n")
 		}
@@ -453,6 +509,9 @@ func generateKeyPair(reader *bufio.Reader) {
 	fmt.Printf("\nKey pair generated successfully:\n")
 	fmt.Printf("  Public key:  %s\n", pubPath)
 	fmt.Printf("  Private key: %s [ENCRYPTED]\n", privPath)
+
+	// Offer to set nicknames for the new keys independently
+	fmt.Println("\nYou can nickname each key individually via Key Management > Nickname a Key.")
 }
 
 // encryptPrivateKey scans for unencrypted .priv files, lets the user select
@@ -466,6 +525,9 @@ func encryptPrivateKey(reader *bufio.Reader) {
 		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
 		return
 	}
+
+	// Load nicknames for display
+	nicks := loadNicknames()
 
 	var openKeys []string
 	for _, f := range privFiles {
@@ -485,7 +547,7 @@ func encryptPrivateKey(reader *bufio.Reader) {
 
 	fmt.Println("\nUnencrypted private key files:")
 	for i, f := range openKeys {
-		fmt.Printf("  %d) %s [OPEN]\n", i+1, f)
+		fmt.Printf("  %d) %s [OPEN]\n", i+1, formatKeyName(f, nicks))
 	}
 	idx := promptSelection(reader, "Select key to encrypt", len(openKeys))
 	keyPath := openKeys[idx]
@@ -517,11 +579,12 @@ func encryptPrivateKey(reader *bufio.Reader) {
 		return
 	}
 
-	fmt.Printf("\nPrivate key encrypted successfully: %s [ENCRYPTED]\n", keyPath)
+	fmt.Printf("\nPrivate key encrypted successfully: %s [ENCRYPTED]\n", formatKeyName(keyPath, nicks))
 }
 
 // deleteKeyPair presents all key files to the user, confirms deletion,
 // and removes both the .pub and .priv files for the selected key name.
+// Also cleans up any associated nicknames from keys.json.
 func deleteKeyPair(reader *bufio.Reader) {
 	pubFiles, _ := listFiles(".", func(name string) bool {
 		return strings.HasSuffix(name, ".pub")
@@ -534,6 +597,9 @@ func deleteKeyPair(reader *bufio.Reader) {
 		fmt.Println("\nNo key files found in current directory.")
 		return
 	}
+
+	// Load nicknames for display and later cleanup
+	nicks := loadNicknames()
 
 	// Build a sorted list of unique key base names
 	baseNames := make(map[string]bool)
@@ -550,7 +616,7 @@ func deleteKeyPair(reader *bufio.Reader) {
 	}
 	sort.Strings(sorted)
 
-	// Display the key pairs with their existing files
+	// Display the key pairs with their existing files and nicknames
 	fmt.Println("\nKey pairs:")
 	for i, base := range sorted {
 		parts := []string{}
@@ -560,7 +626,14 @@ func deleteKeyPair(reader *bufio.Reader) {
 		if fileExists(base + ".priv") {
 			parts = append(parts, ".priv")
 		}
-		fmt.Printf("  %d) %s (%s)\n", i+1, base, strings.Join(parts, ", "))
+		// Show nickname if either the .pub or .priv has one
+		label := base
+		if nick, ok := nicks[base+".pub"]; ok && nick != "" {
+			label = fmt.Sprintf("%s (%s)", nick, base)
+		} else if nick, ok := nicks[base+".priv"]; ok && nick != "" {
+			label = fmt.Sprintf("%s (%s)", nick, base)
+		}
+		fmt.Printf("  %d) %s (%s)\n", i+1, label, strings.Join(parts, ", "))
 	}
 
 	idx := promptSelection(reader, "Select key pair to delete", len(sorted))
@@ -586,10 +659,69 @@ func deleteKeyPair(reader *bufio.Reader) {
 				deleted = append(deleted, path)
 			}
 		}
+		// Remove the nickname entry for this file regardless
+		delete(nicks, path)
+	}
+
+	// Save the updated nicknames (with deleted keys removed)
+	if err := saveNicknames(nicks); err != nil {
+		fmt.Fprintf(os.Stderr, "Error updating %s: %v\n", nicknameFile, err)
 	}
 
 	if len(deleted) > 0 {
 		fmt.Printf("Deleted: %s\n", strings.Join(deleted, ", "))
+	}
+}
+
+// nicknameKey lets the user select any .pub or .priv file and assign or
+// update a nickname for it. Each key is nicknamed independently, so a
+// .pub and its matching .priv can have different nicknames.
+func nicknameKey(reader *bufio.Reader) {
+	// Gather all .pub and .priv files in the current directory
+	keyFiles, err := listFiles(".", func(name string) bool {
+		return strings.HasSuffix(name, ".pub") || strings.HasSuffix(name, ".priv")
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
+		return
+	}
+	if len(keyFiles) == 0 {
+		fmt.Println("\nNo key files found in current directory.")
+		return
+	}
+
+	// Load existing nicknames for display
+	nicks := loadNicknames()
+
+	fmt.Println("\nKey files:")
+	for i, f := range keyFiles {
+		if nick, ok := nicks[f]; ok && nick != "" {
+			fmt.Printf("  %d) %s (current nickname: %s)\n", i+1, f, nick)
+		} else {
+			fmt.Printf("  %d) %s (no nickname)\n", i+1, f)
+		}
+	}
+
+	idx := promptSelection(reader, "Select key to nickname", len(keyFiles))
+	selected := keyFiles[idx]
+
+	// Prompt for the new nickname
+	fmt.Print("Enter nickname: ")
+	nick, _ := reader.ReadString('\n')
+	nick = strings.TrimSpace(nick)
+	if nick == "" {
+		fmt.Fprintln(os.Stderr, "Nickname cannot be empty.")
+		return
+	}
+
+	// Apply the nickname to the selected file only — each key (.pub / .priv)
+	// is nicknamed independently so pairs can have different nicknames.
+	nicks[selected] = nick
+	fmt.Printf("Nickname '%s' applied to %s.\n", nick, selected)
+
+	// Save the updated nicknames to keys.json
+	if err := saveNicknames(nicks); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving nicknames: %v\n", err)
 	}
 }
 

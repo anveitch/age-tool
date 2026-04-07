@@ -30,3 +30,6 @@ TestMessage.txt.orig
 # Compiled binary
 age-tool
 *.txt
+
+# Key nickname config (contains local key metadata)
+keys.json
