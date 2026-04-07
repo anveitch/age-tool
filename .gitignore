@@ -33,3 +33,4 @@ age-tool
 
 # Key nickname config (contains local key metadata)
 keys.json
+/builds
