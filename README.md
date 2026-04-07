@@ -4,10 +4,33 @@ A command line AGE encryption management application for encrypting and decrypti
 
 ## Requirements
 
-- Go 1.21 or later
 - Public keys must have a `.pub` extension
 - Private keys must have a `.priv` extension and be passphrase-protected
 - Key files and target files should be in the same directory as the application
+
+## Building from Source
+
+Building from source requires [Go](https://go.dev/) 1.21 or later.
+
+To build for your current platform:
+
+    go build -o age-tool .
+
+To cross-compile for all supported platforms at once, use the included build script:
+
+    ./build.sh
+
+This creates a `builds/` directory containing binaries for every supported target.
+
+### Platform Support
+
+| Platform              | Binary name                 |
+|-----------------------|-----------------------------|
+| macOS Apple Silicon   | `age-tool-macos-arm64`      |
+| Windows x64           | `age-tool-windows-x64.exe`  |
+| Linux x64             | `age-tool-linux-x64`        |
+
+The compiled binaries are self-contained and do not require Go to be installed on the target machine. However, if you plan to generate keys manually outside the application, the [age CLI](https://github.com/FiloSottile/age) must be installed on the target system. The built-in key generation feature has no external dependencies.
 
 ## Usage
 
