@@ -2,6 +2,22 @@
 
 A command line AGE encryption management application for encrypting and decrypting files, generating and managing key pairs, and organising keys with nicknames. Built with the [filippo.io/age](https://filippo.io/age) Go library.
 
+## Installation
+
+### Option 1 -- Homebrew (macOS)
+
+    brew tap anveitch/age-tool
+    brew install age-tool
+
+### Option 2 -- Manual Installation
+
+Download the appropriate binary for your platform from the [Releases](https://github.com/anveitch/age-tool/releases) page on GitHub, make it executable, and move it to your PATH:
+
+    chmod +x age-tool-macos-arm64
+    mv age-tool-macos-arm64 /usr/local/bin/age-tool
+
+Regardless of installation method, [age](https://github.com/FiloSottile/age) must be installed on the target system if you plan to generate or manage keys manually outside the application.
+
 ## Requirements
 
 - Public keys must have a `.pub` extension
