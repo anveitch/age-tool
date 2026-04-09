@@ -4,6 +4,7 @@
 #
 # Builds the following targets into the ./builds directory:
 #   - macOS Apple Silicon (darwin/arm64)
+#   - macOS Intel (darwin/amd64)
 #   - Windows x64 (windows/amd64)
 #   - Linux x64 (linux/amd64)
 #
@@ -24,6 +25,7 @@ successful=()
 
 targets=(
   "darwin  arm64  age-tool-macos-arm64"
+  "darwin  amd64  age-tool-macos-intel"
   "windows amd64  age-tool-windows-x64.exe"
   "linux   amd64  age-tool-linux-x64"
 )
