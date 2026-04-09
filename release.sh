@@ -4,12 +4,13 @@
 #
 # This script:
 #   1. Prompts for a version number and release notes
-#   2. Builds all platform binaries via build.sh
-#   3. Calculates SHA256 hashes for macOS binaries
-#   4. Creates a GitHub release with all binaries attached
-#   5. Updates the Homebrew formula with new version, URLs, and hashes
-#   6. Commits and pushes the updated formula
-#   7. Prints a summary with upgrade instructions
+#   2. Updates the appVersion constant in main.go and commits the change
+#   3. Builds all platform binaries via build.sh
+#   4. Calculates SHA256 hashes for macOS binaries
+#   5. Creates a GitHub release with all binaries attached
+#   6. Updates the Homebrew formula with new version, URLs, and hashes
+#   7. Commits and pushes the updated formula
+#   8. Prints a summary with upgrade instructions
 #
 
 set -e
@@ -67,7 +68,27 @@ echo
 read -rp "Proceed with release? [y/N]: " CONFIRM
 [ "$CONFIRM" != "y" ] && [ "$CONFIRM" != "Y" ] && die "Release cancelled."
 
-# ─── Step 2: Build all platform binaries ─────────────────────────────────────
+# ─── Step 2: Update version in main.go ───────────────────────────────────────
+
+step "Updating Version in main.go"
+
+# Replace the hardcoded appVersion constant in main.go with the new version
+if ! grep -q 'const appVersion = ' main.go; then
+  die "Could not find appVersion constant in main.go"
+fi
+
+sed -i '' "s|const appVersion = \".*\"|const appVersion = \"${VERSION}\"|" main.go \
+  || die "Failed to update version in main.go"
+
+echo "Updated appVersion to \"${VERSION}\" in main.go"
+
+# Commit the version bump to the age-tool repo
+git add main.go || die "Failed to stage main.go"
+git commit -m "Bump version to ${TAG}" || die "Failed to commit version bump"
+
+echo "Version bump committed."
+
+# ─── Step 3: Build all platform binaries ────────────────────────────────────
 
 step "Building Binaries"
 
@@ -84,7 +105,7 @@ done
 
 echo "All binaries built successfully."
 
-# ─── Step 3: Calculate SHA256 hashes for macOS binaries ──────────────────────
+# ─── Step 4: Calculate SHA256 hashes for macOS binaries ──────────────────────
 
 step "Calculating SHA256 Hashes"
 
@@ -94,7 +115,7 @@ INTEL_SHA256=$(shasum -a 256 "${BUILD_DIR}/${INTEL_BIN}" | awk '{print $1}')
 echo "  ${ARM64_BIN}: ${ARM64_SHA256}"
 echo "  ${INTEL_BIN}: ${INTEL_SHA256}"
 
-# ─── Step 4: Create GitHub release with binaries ─────────────────────────────
+# ─── Step 5: Create GitHub release with binaries ─────────────────────────────
 
 step "Creating GitHub Release"
 
@@ -117,7 +138,7 @@ gh release create "$TAG" \
 
 echo "GitHub release ${TAG} created successfully."
 
-# ─── Step 5: Update the Homebrew formula ─────────────────────────────────────
+# ─── Step 6: Update the Homebrew formula ─────────────────────────────────────
 
 step "Updating Homebrew Formula"
 
@@ -165,7 +186,7 @@ echo "  Version: ${VERSION}"
 echo "  arm64 SHA256: ${ARM64_SHA256}"
 echo "  Intel SHA256: ${INTEL_SHA256}"
 
-# ─── Step 6: Commit and push the updated formula ────────────────────────────
+# ─── Step 7: Commit and push the updated formula ────────────────────────────
 
 step "Committing and Pushing Formula"
 
@@ -188,7 +209,7 @@ echo "Formula committed and pushed successfully."
 # Return to the original directory
 cd - > /dev/null
 
-# ─── Step 7: Print release summary ──────────────────────────────────────────
+# ─── Step 8: Print release summary ──────────────────────────────────────────
 
 step "Release Summary"
 
