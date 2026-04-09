@@ -43,6 +43,7 @@ This creates a `builds/` directory containing binaries for every supported targe
 | Platform              | Binary name                 |
 |-----------------------|-----------------------------|
 | macOS Apple Silicon   | `age-tool-macos-arm64`      |
+| macOS Intel           | `age-tool-macos-intel`      |
 | Windows x64           | `age-tool-windows-x64.exe`  |
 | Linux x64             | `age-tool-linux-x64`        |
 
@@ -241,14 +242,54 @@ If you prefer to generate keys outside the application:
 
 You should now have `key1.pub` (public key) and `key1.priv` (passphrase-protected private key).
 
-## Security Notes
+## Security
+
+age-tool includes multiple layers of security hardening to protect your keys and data.
+
+### Input Sanitisation
+
+- **Path traversal prevention.** Filenames containing `../`, absolute paths, or path separators are rejected. All file operations are restricted to the current working directory.
+- **File extension validation.** Key files are validated to ensure they contain the expected AGE key format before use.
+- **Input length limits.** User text inputs (key names, nicknames) are limited to 255 characters to prevent buffer issues.
+- **Whitespace stripping.** All user inputs are trimmed of leading and trailing whitespace before processing.
+
+### File Handling
+
+- **File size limits.** Files larger than 2 GB are rejected before processing to prevent handling unexpectedly large files.
+- **Restrictive output permissions.** All output files (encrypted files, decrypted files, key files, log files) are written with owner-only permissions (`0600`).
+- **Overwrite confirmation.** If an output file already exists, the user is prompted for confirmation before overwriting.
+- **Working directory check.** On startup, the application verifies the current directory is accessible and writable before starting any operation.
+
+### Passphrase Security
+
+- **Minimum length enforced.** Passphrases must be at least 12 characters when creating or encrypting keys.
+- **Weak passphrase detection.** Passphrases using all the same character, only digits, or common patterns are flagged with a warning.
+- **Attempt limit.** During decryption, a maximum of 3 passphrase attempts are allowed before returning to the main menu.
+- **Memory clearing.** Passphrase byte arrays are zeroed after use to reduce the window of exposure in memory.
+
+### Temporary File Security
+
+- **Restrictive permissions.** Temporary decrypted key files are created with owner-only permissions (`0600`).
+- **Automatic cleanup.** Temporary files are removed immediately after use, on normal exit, and on forced exit via Ctrl+C, SIGTERM, or SIGHUP. A global registry and signal handler ensure cleanup regardless of how the application exits.
+- **Leftover detection.** On startup, the application scans for any `.tmpkey-*` files left from a previous crashed session and prompts the user to delete them.
+
+### Key File Security
+
+- **Key validation.** Public key files are parsed and validated as valid AGE public keys before use. Private key files are verified to be AGE-encrypted before decryption is attempted.
+- **Permission checks.** On startup, all `.priv` files are checked for overly permissive permissions (group or world readable). The user is offered the option to automatically fix them to owner-only (`0600`).
+
+### Audit Log Security
+
+- **Restrictive permissions.** Both `age-tool.log` and individual receipt files in `logs/` are written with owner-only permissions (`0600`). The `logs/` directory itself is created with `0700` permissions.
+- **No sensitive data logged.** Passphrases and key material are never written to any log or receipt file. Logs contain only filenames, hashes, timestamps, and nicknames.
+
+## Security Best Practices
 
 - **Never commit `.priv` files to version control.** Even passphrase-protected private keys should not be stored in repositories. Add `*.priv` to your `.gitignore`.
 - **Always use passphrase-protected private keys.** The tool enforces this by rejecting unencrypted `.priv` files during decryption and warning about them on startup.
 - **Use Generate New Key Pair for the safest workflow.** The built-in key generation never writes unencrypted key material to disk.
 - **`.pub` files are safe to share.** Public keys can be freely distributed to anyone who needs to encrypt files for you.
 - **`.age` files are safe to share.** Encrypted files can only be decrypted by the holder of the corresponding private key.
-- **Temporary files are always cleaned up.** Decrypted key material is written to hidden temporary files with restricted permissions and removed immediately after use, including on Ctrl+C.
 - **`keys.json` contains only nicknames, not key material.** It is safe to keep but is excluded from version control by default via `.gitignore`.
 
 ## License

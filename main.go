@@ -22,10 +22,14 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode"
 
 	"filippo.io/age"
 	"golang.org/x/term"
 )
+
+// Application version, printed with --version flag.
+const appVersion = "1.0.0"
 
 // Log file paths for the audit/receipt system.
 const (
@@ -34,8 +38,16 @@ const (
 )
 
 // nicknameFile is the JSON config file that stores key nicknames.
-// It maps filenames (e.g. "work.priv") to human-readable nicknames.
 const nicknameFile = "keys.json"
+
+// Security limits.
+const (
+	maxInputLength   = 255               // Maximum length for user text inputs (names, nicknames)
+	maxFileSize      = 2 * 1024 * 1024 * 1024 // 2 GB maximum file size for processing
+	minPassphraseLen = 12                // Minimum passphrase length for key encryption
+	maxPassAttempts  = 3                 // Maximum passphrase attempts before returning to menu
+	tmpFilePrefix    = ".tmpkey-"        // Prefix for temporary decrypted key files
+)
 
 // tempFileRegistry tracks temporary decrypted key files so they can be
 // cleaned up on exit (normal return, defer, or signal). Access is
@@ -75,6 +87,208 @@ func cleanupTempFiles() {
 	tempFiles = nil
 }
 
+// ─── Input Validation ───────────────────────────────────────────────────────
+
+// sanitiseInput trims whitespace and enforces the maximum input length.
+// Returns the cleaned string and an error if it exceeds the limit.
+func sanitiseInput(input string) (string, error) {
+	s := strings.TrimSpace(input)
+	if len(s) > maxInputLength {
+		return "", fmt.Errorf("input exceeds maximum length of %d characters", maxInputLength)
+	}
+	return s, nil
+}
+
+// validateFilename checks that a filename is safe to use:
+// - No path traversal sequences (../)
+// - No absolute paths
+// - No path separators (must be a simple filename in the current directory)
+// - Not empty
+func validateFilename(name string) error {
+	if name == "" {
+		return fmt.Errorf("filename cannot be empty")
+	}
+	if strings.Contains(name, "..") {
+		return fmt.Errorf("path traversal not allowed")
+	}
+	if filepath.IsAbs(name) {
+		return fmt.Errorf("absolute paths not allowed")
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("path separators not allowed — files must be in the current directory")
+	}
+	return nil
+}
+
+// checkFileSize verifies that the file does not exceed the maximum allowed
+// size. Returns the file size or an error.
+func checkFileSize(path string) (int64, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, fmt.Errorf("cannot access file")
+	}
+	if info.Size() > maxFileSize {
+		return 0, fmt.Errorf("file exceeds maximum size of 2 GB")
+	}
+	return info.Size(), nil
+}
+
+// confirmOverwrite asks the user for confirmation before overwriting an
+// existing file. Returns true if the user confirms or the file does not exist.
+func confirmOverwrite(reader *bufio.Reader, path string) bool {
+	if !fileExists(path) {
+		return true
+	}
+	fmt.Printf("\nFile '%s' already exists. Overwrite? [y/N]: ", filepath.Base(path))
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	return answer == "y" || answer == "yes"
+}
+
+// checkWorkingDirectory verifies the current directory is accessible and
+// writable by attempting to stat it and create a temporary probe file.
+func checkWorkingDirectory() error {
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("cannot determine working directory")
+	}
+	info, err := os.Stat(wd)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("working directory is not accessible")
+	}
+	// Write a tiny probe file to verify the directory is writable
+	probe := filepath.Join(wd, ".age-tool-probe")
+	if err := os.WriteFile(probe, []byte{}, 0600); err != nil {
+		return fmt.Errorf("working directory is not writable")
+	}
+	os.Remove(probe)
+	return nil
+}
+
+// ─── Passphrase Validation ──────────────────────────────────────────────────
+
+// isWeakPassphrase checks for simple weak patterns: all same character,
+// all digits, common sequences. Returns a warning message or empty string.
+func isWeakPassphrase(pass string) string {
+	if len(pass) == 0 {
+		return ""
+	}
+
+	// Check if all characters are the same
+	allSame := true
+	for _, c := range pass[1:] {
+		if byte(c) != pass[0] {
+			allSame = false
+			break
+		}
+	}
+	if allSame {
+		return "passphrase is all the same character"
+	}
+
+	// Check if all digits
+	allDigits := true
+	for _, c := range pass {
+		if !unicode.IsDigit(c) {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return "passphrase contains only digits"
+	}
+
+	// Check for simple ascending/descending sequences
+	lower := strings.ToLower(pass)
+	sequences := []string{"abcdefghijklmnopqrstuvwxyz", "0123456789", "qwertyuiop", "password", "passphrase"}
+	for _, seq := range sequences {
+		if strings.Contains(seq, lower) || lower == seq {
+			return "passphrase matches a common pattern"
+		}
+	}
+
+	return ""
+}
+
+// clearBytes overwrites a byte slice with zeros to remove sensitive data
+// from memory. This is a best-effort measure; the Go runtime may have
+// already copied the data elsewhere.
+func clearBytes(b []byte) {
+	for i := range b {
+		b[i] = 0
+	}
+}
+
+// ─── Key File Validation ────────────────────────────────────────────────────
+
+// validatePubKeyFile checks that a .pub file contains a valid AGE public key
+// by attempting to parse it as a recipient.
+func validatePubKeyFile(path string) error {
+	f, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("cannot open public key file")
+	}
+	defer f.Close()
+
+	recipients, err := age.ParseRecipients(f)
+	if err != nil {
+		return fmt.Errorf("file does not contain a valid AGE public key")
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("no AGE public key found in file")
+	}
+	return nil
+}
+
+// validatePrivKeyFile checks that a .priv file is a valid AGE-encrypted
+// private key by looking for the age encryption header.
+func validatePrivKeyFile(path string) error {
+	encrypted, err := isAgeEncrypted(path)
+	if err != nil {
+		return fmt.Errorf("cannot read private key file")
+	}
+	if !encrypted {
+		return fmt.Errorf("private key is not passphrase-encrypted")
+	}
+	return nil
+}
+
+// checkKeyPermissions checks whether a key file has overly permissive
+// permissions (group or world readable/writable). Returns a warning
+// message or empty string. Only meaningful on Unix-like systems.
+func checkKeyPermissions(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return ""
+	}
+	mode := info.Mode().Perm()
+	// Check if group or world has any access (bits beyond owner rwx)
+	if mode&0077 != 0 {
+		return fmt.Sprintf("file has overly permissive permissions (%04o)", mode)
+	}
+	return ""
+}
+
+// offerFixPermissions warns the user about permissive key file permissions
+// and offers to restrict them to owner-only (0600).
+func offerFixPermissions(reader *bufio.Reader, path string) {
+	warning := checkKeyPermissions(path)
+	if warning == "" {
+		return
+	}
+	fmt.Printf("  WARNING: %s — %s\n", filepath.Base(path), warning)
+	fmt.Printf("  Fix permissions to owner-only (0600)? [Y/n]: ")
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "" || answer == "y" || answer == "yes" {
+		if err := os.Chmod(path, 0600); err != nil {
+			fmt.Fprintf(os.Stderr, "  Could not fix permissions.\n")
+		} else {
+			fmt.Printf("  Permissions fixed: %s -> 0600\n", filepath.Base(path))
+		}
+	}
+}
+
 // ─── Nickname helpers ───────────────────────────────────────────────────────
 
 // loadNicknames reads the keys.json file and returns the filename-to-nickname
@@ -112,6 +326,12 @@ func formatKeyName(filename string, nicks map[string]string) string {
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 func main() {
+	// Handle --version flag before any other processing
+	if len(os.Args) > 1 && os.Args[1] == "--version" {
+		fmt.Printf("age-tool v%s\n", appVersion)
+		return
+	}
+
 	// Defer cleanup as a secondary safety net for normal exit paths
 	defer cleanupTempFiles()
 
@@ -125,13 +345,25 @@ func main() {
 		os.Exit(1)
 	}()
 
+	// Verify the working directory is accessible and writable before starting
+	if err := checkWorkingDirectory(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Println("age-tool: file encryption/decryption")
+	fmt.Printf("age-tool v%s: file encryption/decryption\n", appVersion)
+
+	// Startup check: clean up any leftover temp files from a previous crash
+	cleanupLeftoverTempFiles(reader)
 
 	// Startup health check: warn the user about any unencrypted .priv files
 	// in the current directory before showing the main menu.
 	checkUnencryptedKeys()
+
+	// Startup check: warn about key files with overly permissive permissions
+	checkKeyFilePermissions(reader)
 
 	// Main loop: present the menu after each operation until the user quits
 	for {
@@ -159,6 +391,44 @@ func main() {
 			return
 		default:
 			fmt.Fprintln(os.Stderr, "Invalid choice, try again.")
+		}
+	}
+}
+
+// cleanupLeftoverTempFiles scans for any .tmpkey-* files left from a previous
+// crashed session and prompts the user to delete them.
+func cleanupLeftoverTempFiles(reader *bufio.Reader) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		return
+	}
+
+	var leftovers []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), tmpFilePrefix) {
+			leftovers = append(leftovers, e.Name())
+		}
+	}
+
+	if len(leftovers) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("!! WARNING: Leftover temporary key file(s) found from a previous session !!")
+	for _, f := range leftovers {
+		fmt.Printf("   - %s\n", f)
+	}
+	fmt.Print("These may contain decrypted key material. Delete them now? [Y/n]: ")
+	answer, _ := reader.ReadString('\n')
+	answer = strings.TrimSpace(strings.ToLower(answer))
+	if answer == "" || answer == "y" || answer == "yes" {
+		for _, f := range leftovers {
+			if err := os.Remove(f); err != nil {
+				fmt.Fprintf(os.Stderr, "  Could not delete %s.\n", f)
+			} else {
+				fmt.Printf("  Deleted: %s\n", f)
+			}
 		}
 	}
 }
@@ -201,6 +471,35 @@ func checkUnencryptedKeys() {
 	}
 }
 
+// checkKeyFilePermissions scans .priv files for overly permissive permissions
+// and offers to fix them at startup.
+func checkKeyFilePermissions(reader *bufio.Reader) {
+	privFiles, err := listFiles(".", func(name string) bool {
+		return strings.HasSuffix(name, ".priv")
+	})
+	if err != nil || len(privFiles) == 0 {
+		return
+	}
+
+	// Collect files with bad permissions
+	var badPerms []string
+	for _, f := range privFiles {
+		if warning := checkKeyPermissions(f); warning != "" {
+			badPerms = append(badPerms, f)
+		}
+	}
+
+	if len(badPerms) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("!! WARNING: Key file(s) with overly permissive permissions !!")
+	for _, f := range badPerms {
+		offerFixPermissions(reader, f)
+	}
+}
+
 // ─── Encrypt ────────────────────────────────────────────────────────────────
 
 // encrypt walks the user through selecting a file and public key,
@@ -212,7 +511,7 @@ func encrypt(reader *bufio.Reader) {
 		return !strings.HasSuffix(name, ".age")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing files.")
 		return
 	}
 	if len(files) == 0 {
@@ -235,12 +534,18 @@ func encrypt(reader *bufio.Reader) {
 	}
 	inputPath := files[file]
 
+	// Validate the selected file exists and is within size limits
+	if _, err := checkFileSize(inputPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
 	// List all .pub key files for the user to choose a recipient
 	pubFiles, err := listFiles(".", func(name string) bool {
 		return strings.HasSuffix(name, ".pub")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing key files.")
 		return
 	}
 	if len(pubFiles) == 0 {
@@ -256,17 +561,29 @@ func encrypt(reader *bufio.Reader) {
 	}
 	keyIdx := promptSelection(reader, "Select public key", len(pubFiles))
 
-	// Parse the selected public key file into an age recipient
-	pubKey, err := readRecipient(pubFiles[keyIdx])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading public key: %v\n", err)
+	// Validate the public key file contains a valid AGE public key
+	if err := validatePubKeyFile(pubFiles[keyIdx]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
 
-	// Perform encryption, writing output as <original-filename>.age
+	// Parse the selected public key file into an age recipient
+	pubKey, err := readRecipient(pubFiles[keyIdx])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error reading public key.")
+		return
+	}
+
+	// Check if the output file already exists and confirm overwrite
 	outputPath := inputPath + ".age"
+	if !confirmOverwrite(reader, outputPath) {
+		fmt.Println("Encryption cancelled.")
+		return
+	}
+
+	// Perform encryption, writing output with restrictive permissions
 	if err := encryptFile(inputPath, outputPath, pubKey); err != nil {
-		fmt.Fprintf(os.Stderr, "Encryption failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Encryption failed.")
 		return
 	}
 
@@ -291,7 +608,7 @@ func decrypt(reader *bufio.Reader) {
 		return strings.HasSuffix(name, ".age")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing files.")
 		return
 	}
 	if len(ageFiles) == 0 {
@@ -314,16 +631,22 @@ func decrypt(reader *bufio.Reader) {
 	}
 	inputPath := ageFiles[fileIdx]
 
+	// Validate the selected file exists and is within size limits
+	if _, err := checkFileSize(inputPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
 	// Scan the current directory for .priv key files and present them as a list
 	privFiles, err := listFiles(".", func(name string) bool {
 		return strings.HasSuffix(name, ".priv")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing key files.")
 		return
 	}
 	if len(privFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "No .priv key files found in current directory. Please add a private key file with a .priv extension.")
+		fmt.Fprintln(os.Stderr, "No .priv key files found in current directory.")
 		return
 	}
 
@@ -336,50 +659,70 @@ func decrypt(reader *bufio.Reader) {
 	keyIdx := promptSelection(reader, "Select private key", len(privFiles))
 	keyPath := privFiles[keyIdx]
 
-	// Check whether the selected .priv file is passphrase-protected (age-encrypted).
-	// Unprotected private keys are rejected for security reasons.
-	encrypted, err := isAgeEncrypted(keyPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading key file: %v\n", err)
-		return
-	}
-	if !encrypted {
+	// Validate the private key is a valid AGE-encrypted file
+	if err := validatePrivKeyFile(keyPath); err != nil {
 		fmt.Fprintln(os.Stderr, "\nWARNING: The selected private key is NOT passphrase-protected.")
 		fmt.Fprintln(os.Stderr, "For security, only passphrase-protected .priv files are accepted.")
 		fmt.Fprintln(os.Stderr, "Use Key Management > Encrypt a Private Key to secure it.")
 		return
 	}
 
-	// Prompt the user for the passphrase (input is hidden/masked)
-	fmt.Print("\nEnter passphrase for private key: ")
-	passBytes, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println() // move to a new line after hidden input
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading passphrase: %v\n", err)
-		return
-	}
-	passphrase := string(passBytes)
+	// Prompt the user for the passphrase with limited attempts
+	var tmpKeyPath string
+	for attempt := 1; attempt <= maxPassAttempts; attempt++ {
+		fmt.Printf("\nEnter passphrase for private key (attempt %d/%d): ", attempt, maxPassAttempts)
+		passBytes, err := term.ReadPassword(int(syscall.Stdin))
+		fmt.Println()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error reading passphrase.")
+			return
+		}
+		passphrase := string(passBytes)
 
-	// Decrypt the passphrase-protected key to a temporary hidden file
-	tmpKeyPath, err := decryptKeyToTempFile(keyPath, passphrase)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error decrypting private key: %v\n", err)
-		return
+		// Attempt to decrypt the key with this passphrase
+		tmpKeyPath, err = decryptKeyToTempFile(keyPath, passphrase)
+
+		// Clear the passphrase from memory
+		clearBytes(passBytes)
+
+		if err == nil {
+			break
+		}
+
+		if attempt < maxPassAttempts {
+			fmt.Fprintln(os.Stderr, "Incorrect passphrase, try again.")
+		} else {
+			fmt.Fprintln(os.Stderr, "Maximum passphrase attempts exceeded.")
+			return
+		}
 	}
+
 	// Ensure the temp file is cleaned up after this function returns
 	defer removeTempFile(tmpKeyPath)
+
+	// Verify the temp file was actually created and exists
+	if !fileExists(tmpKeyPath) {
+		fmt.Fprintln(os.Stderr, "Error: temporary key file was not created.")
+		return
+	}
 
 	// Parse the temporarily decrypted private key into an age identity
 	identity, err := readIdentity(tmpKeyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing decrypted private key: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error parsing decrypted private key.")
 		return
 	}
 
-	// Perform decryption, stripping the .age extension for the output filename
+	// Check if the output file already exists and confirm overwrite
 	outputPath := strings.TrimSuffix(inputPath, ".age")
+	if !confirmOverwrite(reader, outputPath) {
+		fmt.Println("Decryption cancelled.")
+		return
+	}
+
+	// Perform decryption, writing output with restrictive permissions
 	if err := decryptFile(inputPath, outputPath, identity); err != nil {
-		fmt.Fprintf(os.Stderr, "Decryption failed: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Decryption failed.")
 		return
 	}
 
@@ -485,11 +828,16 @@ func listKeys() {
 			encrypted, err := isAgeEncrypted(privPath)
 			status := "[ENCRYPTED]"
 			if err != nil {
-				status = fmt.Sprintf("[ERROR: %v]", err)
+				status = "[ERROR]"
 			} else if !encrypted {
 				status = "[OPEN]"
 			}
-			fmt.Printf("    Private: %s %s\n", formatKeyName(privPath, nicks), status)
+			// Show permissions warning inline
+			permWarn := ""
+			if w := checkKeyPermissions(privPath); w != "" {
+				permWarn = " [PERMS]"
+			}
+			fmt.Printf("    Private: %s %s%s\n", formatKeyName(privPath, nicks), status, permWarn)
 		} else {
 			fmt.Printf("    Private: (not found)\n")
 		}
@@ -502,10 +850,20 @@ func listKeys() {
 func generateKeyPair(reader *bufio.Reader) {
 	// Prompt for the key pair name
 	fmt.Print("\nKey pair name: ")
-	name, _ := reader.ReadString('\n')
-	name = strings.TrimSpace(name)
+	rawName, _ := reader.ReadString('\n')
+	name, err := sanitiseInput(rawName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
 	if name == "" {
 		fmt.Fprintln(os.Stderr, "Name cannot be empty.")
+		return
+	}
+
+	// Validate the name is safe for use as a filename
+	if err := validateFilename(name); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
 
@@ -520,20 +878,20 @@ func generateKeyPair(reader *bufio.Reader) {
 	// Prompt for a passphrase to protect the private key (hidden input)
 	passphrase, err := promptPassphraseConfirm("Enter passphrase for private key")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading passphrase: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
 
 	// Generate a new X25519 key pair in memory
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error generating key pair: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error generating key pair.")
 		return
 	}
 
-	// Write the public key to the .pub file
+	// Write the public key to the .pub file (public keys are not secret)
 	if err := os.WriteFile(pubPath, []byte(identity.Recipient().String()+"\n"), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Error writing public key: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error writing public key.")
 		return
 	}
 
@@ -542,7 +900,7 @@ func generateKeyPair(reader *bufio.Reader) {
 	if err := writeEncryptedPrivateKey(privPath, identity.String(), passphrase); err != nil {
 		// Clean up the .pub file if the .priv file failed to write
 		os.Remove(pubPath)
-		fmt.Fprintf(os.Stderr, "Error writing encrypted private key: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error writing encrypted private key.")
 		return
 	}
 
@@ -567,7 +925,7 @@ func encryptPrivateKey(reader *bufio.Reader) {
 		return strings.HasSuffix(name, ".priv")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing key files.")
 		return
 	}
 
@@ -600,7 +958,7 @@ func encryptPrivateKey(reader *bufio.Reader) {
 	// Read the plaintext private key from the file
 	keyData, err := os.ReadFile(keyPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading key file: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error reading key file.")
 		return
 	}
 
@@ -614,13 +972,13 @@ func encryptPrivateKey(reader *bufio.Reader) {
 	// Prompt for a passphrase with confirmation
 	passphrase, err := promptPassphraseConfirm("Enter passphrase")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error reading passphrase: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return
 	}
 
 	// Encrypt the private key and overwrite the file in place
 	if err := writeEncryptedPrivateKey(keyPath, secretKey, passphrase); err != nil {
-		fmt.Fprintf(os.Stderr, "Error encrypting private key: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error encrypting private key.")
 		return
 	}
 
@@ -699,7 +1057,7 @@ func deleteKeyPair(reader *bufio.Reader) {
 		path := base + ext
 		if fileExists(path) {
 			if err := os.Remove(path); err != nil {
-				fmt.Fprintf(os.Stderr, "Error deleting %s: %v\n", path, err)
+				fmt.Fprintf(os.Stderr, "Error deleting %s.\n", filepath.Base(path))
 			} else {
 				deleted = append(deleted, path)
 			}
@@ -710,7 +1068,7 @@ func deleteKeyPair(reader *bufio.Reader) {
 
 	// Save the updated nicknames (with deleted keys removed)
 	if err := saveNicknames(nicks); err != nil {
-		fmt.Fprintf(os.Stderr, "Error updating %s: %v\n", nicknameFile, err)
+		fmt.Fprintln(os.Stderr, "Error updating nicknames.")
 	}
 
 	if len(deleted) > 0 {
@@ -727,7 +1085,7 @@ func nicknameKey(reader *bufio.Reader) {
 		return strings.HasSuffix(name, ".pub") || strings.HasSuffix(name, ".priv")
 	})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error listing key files: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error listing key files.")
 		return
 	}
 	if len(keyFiles) == 0 {
@@ -750,10 +1108,14 @@ func nicknameKey(reader *bufio.Reader) {
 	idx := promptSelection(reader, "Select key to nickname", len(keyFiles))
 	selected := keyFiles[idx]
 
-	// Prompt for the new nickname
+	// Prompt for the new nickname with input sanitisation
 	fmt.Print("Enter nickname: ")
-	nick, _ := reader.ReadString('\n')
-	nick = strings.TrimSpace(nick)
+	rawNick, _ := reader.ReadString('\n')
+	nick, err := sanitiseInput(rawNick)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
 	if nick == "" {
 		fmt.Fprintln(os.Stderr, "Nickname cannot be empty.")
 		return
@@ -766,7 +1128,7 @@ func nicknameKey(reader *bufio.Reader) {
 
 	// Save the updated nicknames to keys.json
 	if err := saveNicknames(nicks); err != nil {
-		fmt.Fprintf(os.Stderr, "Error saving nicknames: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Error saving nicknames.")
 	}
 }
 
@@ -794,12 +1156,20 @@ func hashFile(path string) (md5Hex, sha256Hex string, err error) {
 // writeReceiptJSON creates an individual JSON receipt file in the logs/
 // directory. The filename is based on the transaction type and timestamp
 // e.g. encrypt-2026-04-09-143022.json. The logs directory is created
-// automatically if it doesn't exist.
+// automatically with restrictive permissions if it doesn't exist.
+// Receipt files are written with owner-only permissions (0600).
 func writeReceiptJSON(txType string, timestamp time.Time, receipt map[string]string) {
-	// Ensure the logs directory exists
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not create logs directory: %v\n", err)
+	// Ensure the logs directory exists with restrictive permissions
+	if err := os.MkdirAll(logsDir, 0700); err != nil {
+		fmt.Fprintln(os.Stderr, "Warning: could not create logs directory.")
 		return
+	}
+
+	// Verify logs directory permissions are not overly permissive
+	if info, err := os.Stat(logsDir); err == nil {
+		if info.Mode().Perm()&0077 != 0 {
+			os.Chmod(logsDir, 0700)
+		}
 	}
 
 	// Build the receipt filename from the transaction type and timestamp
@@ -808,21 +1178,23 @@ func writeReceiptJSON(txType string, timestamp time.Time, receipt map[string]str
 
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not marshal receipt: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Warning: could not marshal receipt.")
 		return
 	}
 
-	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not write receipt %s: %v\n", path, err)
+	// Write receipt with owner-only permissions
+	if err := os.WriteFile(path, append(data, '\n'), 0600); err != nil {
+		fmt.Fprintln(os.Stderr, "Warning: could not write receipt.")
 	}
 }
 
 // appendLogLine appends a single human-readable summary line to the running
-// age-tool.log file. The file is created if it doesn't exist.
+// age-tool.log file. The file is created with owner-only permissions (0600)
+// if it doesn't exist.
 func appendLogLine(line string) {
-	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: could not open log file: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Warning: could not open log file.")
 		return
 	}
 	defer f.Close()
@@ -831,24 +1203,22 @@ func appendLogLine(line string) {
 }
 
 // logEncrypt records an encryption transaction to both the running log file
-// and an individual JSON receipt.
+// and an individual JSON receipt. No sensitive material is ever logged.
 func logEncrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5, outSHA256, keyFile, keyNickname string) {
-	// Build the JSON receipt
 	receipt := map[string]string{
-		"transaction":    "encrypt",
-		"timestamp":      timestamp.Format(time.RFC3339),
-		"source_file":    srcFile,
-		"source_md5":     srcMD5,
-		"source_sha256":  srcSHA256,
-		"output_file":    outFile,
-		"output_md5":     outMD5,
-		"output_sha256":  outSHA256,
-		"public_key":     keyFile,
-		"key_nickname":   keyNickname,
+		"transaction":   "encrypt",
+		"timestamp":     timestamp.Format(time.RFC3339),
+		"source_file":   srcFile,
+		"source_md5":    srcMD5,
+		"source_sha256": srcSHA256,
+		"output_file":   outFile,
+		"output_md5":    outMD5,
+		"output_sha256": outSHA256,
+		"public_key":    keyFile,
+		"key_nickname":  keyNickname,
 	}
 	writeReceiptJSON("encrypt", timestamp, receipt)
 
-	// Append a human-readable summary to the running log
 	keyLabel := keyFile
 	if keyNickname != "" {
 		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
@@ -859,24 +1229,22 @@ func logEncrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5
 }
 
 // logDecrypt records a decryption transaction to both the running log file
-// and an individual JSON receipt.
+// and an individual JSON receipt. No sensitive material is ever logged.
 func logDecrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5, outSHA256, keyFile, keyNickname string) {
-	// Build the JSON receipt
 	receipt := map[string]string{
-		"transaction":    "decrypt",
-		"timestamp":      timestamp.Format(time.RFC3339),
-		"source_file":    srcFile,
-		"source_md5":     srcMD5,
-		"source_sha256":  srcSHA256,
-		"output_file":    outFile,
-		"output_md5":     outMD5,
-		"output_sha256":  outSHA256,
-		"private_key":    keyFile,
-		"key_nickname":   keyNickname,
+		"transaction":   "decrypt",
+		"timestamp":     timestamp.Format(time.RFC3339),
+		"source_file":   srcFile,
+		"source_md5":    srcMD5,
+		"source_sha256": srcSHA256,
+		"output_file":   outFile,
+		"output_md5":    outMD5,
+		"output_sha256": outSHA256,
+		"private_key":   keyFile,
+		"key_nickname":  keyNickname,
 	}
 	writeReceiptJSON("decrypt", timestamp, receipt)
 
-	// Append a human-readable summary to the running log
 	keyLabel := keyFile
 	if keyNickname != "" {
 		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
@@ -887,24 +1255,22 @@ func logDecrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5
 }
 
 // logKeyCreation records a key creation transaction to both the running log
-// file and an individual JSON receipt.
+// file and an individual JSON receipt. No sensitive material is ever logged.
 func logKeyCreation(timestamp time.Time, keyName, pubFile, pubMD5, pubSHA256, privFile, privMD5, privSHA256 string) {
-	// Build the JSON receipt
 	receipt := map[string]string{
-		"transaction":         "key-creation",
-		"timestamp":           timestamp.Format(time.RFC3339),
-		"key_pair_name":       keyName,
-		"public_key_file":     pubFile,
-		"public_key_md5":      pubMD5,
-		"public_key_sha256":   pubSHA256,
-		"private_key_file":    privFile,
-		"private_key_md5":     privMD5,
-		"private_key_sha256":  privSHA256,
-		"private_key_status":  "passphrase-encrypted",
+		"transaction":        "key-creation",
+		"timestamp":          timestamp.Format(time.RFC3339),
+		"key_pair_name":      keyName,
+		"public_key_file":    pubFile,
+		"public_key_md5":     pubMD5,
+		"public_key_sha256":  pubSHA256,
+		"private_key_file":   privFile,
+		"private_key_md5":    privMD5,
+		"private_key_sha256": privSHA256,
+		"private_key_status": "passphrase-encrypted",
 	}
 	writeReceiptJSON("key-creation", timestamp, receipt)
 
-	// Append a human-readable summary to the running log
 	line := fmt.Sprintf("[%s] KEY-CREATION: %s | pub: %s (sha256: %s) | priv: %s [ENCRYPTED] (sha256: %s)",
 		timestamp.Format("2006-01-02 15:04:05"), keyName, pubFile, pubSHA256[:16], privFile, privSHA256[:16])
 	appendLogLine(line)
@@ -929,55 +1295,66 @@ func extractSecretKey(data string) string {
 // using AGE's scrypt recipient and writes it to the given path. The file
 // is created with owner-only read/write permissions (0600).
 func writeEncryptedPrivateKey(path, secretKey, passphrase string) error {
-	// Create the scrypt recipient from the passphrase
 	recipient, err := age.NewScryptRecipient(passphrase)
 	if err != nil {
-		return fmt.Errorf("invalid passphrase: %w", err)
+		return fmt.Errorf("encryption setup failed")
 	}
 
-	// Encrypt the secret key into a buffer (never write plaintext to disk)
 	var buf bytes.Buffer
 	w, err := age.Encrypt(&buf, recipient)
 	if err != nil {
-		return fmt.Errorf("encryption setup failed: %w", err)
+		return fmt.Errorf("encryption setup failed")
 	}
 	if _, err := io.WriteString(w, secretKey+"\n"); err != nil {
-		return err
+		return fmt.Errorf("encryption failed")
 	}
 	if err := w.Close(); err != nil {
-		return err
+		return fmt.Errorf("encryption failed")
 	}
 
-	// Write the encrypted data to disk with restrictive permissions
 	return os.WriteFile(path, buf.Bytes(), 0600)
 }
 
 // promptPassphraseConfirm prompts the user to enter a passphrase twice
-// (with hidden input) and returns it only if both entries match.
+// (with hidden input) and returns it only if both entries match. Enforces
+// minimum length and warns about weak passphrases.
 func promptPassphraseConfirm(prompt string) (string, error) {
-	fmt.Printf("\n%s: ", prompt)
+	fmt.Printf("\n%s (min %d chars): ", prompt, minPassphraseLen)
 	pass1, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not read passphrase")
 	}
 
 	fmt.Printf("Confirm passphrase: ")
 	pass2, err := term.ReadPassword(int(syscall.Stdin))
 	fmt.Println()
 	if err != nil {
-		return "", err
+		clearBytes(pass1)
+		return "", fmt.Errorf("could not read passphrase")
 	}
 
 	if string(pass1) != string(pass2) {
+		clearBytes(pass1)
+		clearBytes(pass2)
 		return "", fmt.Errorf("passphrases do not match")
 	}
 
-	if len(pass1) == 0 {
-		return "", fmt.Errorf("passphrase cannot be empty")
+	passphrase := string(pass1)
+	clearBytes(pass2)
+
+	// Enforce minimum length
+	if len(passphrase) < minPassphraseLen {
+		clearBytes(pass1)
+		return "", fmt.Errorf("passphrase must be at least %d characters", minPassphraseLen)
 	}
 
-	return string(pass1), nil
+	// Warn about weak passphrases but allow the user to proceed
+	if warning := isWeakPassphrase(passphrase); warning != "" {
+		fmt.Printf("WARNING: %s. Consider using a stronger passphrase.\n", warning)
+	}
+
+	return passphrase, nil
 }
 
 // fileExists returns true if the given path exists and is not a directory.
@@ -988,8 +1365,6 @@ func fileExists(path string) bool {
 
 // isAgeEncrypted checks whether a file is age-encrypted by looking for the
 // age header line "age-encryption.org/v1" at the start of the file.
-// Returns true if the file is age-encrypted (passphrase-protected),
-// false if it contains a plaintext key.
 func isAgeEncrypted(path string) (bool, error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
@@ -997,7 +1372,6 @@ func isAgeEncrypted(path string) (bool, error) {
 	}
 	defer f.Close()
 
-	// Read the first line of the file to check for the age header
 	scanner := bufio.NewScanner(f)
 	if scanner.Scan() {
 		line := scanner.Text()
@@ -1006,7 +1380,7 @@ func isAgeEncrypted(path string) (bool, error) {
 	if err := scanner.Err(); err != nil {
 		return false, err
 	}
-	return false, fmt.Errorf("file is empty: %s", path)
+	return false, fmt.Errorf("file is empty")
 }
 
 // decryptKeyToTempFile decrypts a passphrase-protected age key file to a
@@ -1015,52 +1389,53 @@ func isAgeEncrypted(path string) (bool, error) {
 // registered in the global cleanup registry so it can be removed on
 // signal or abnormal exit.
 func decryptKeyToTempFile(encryptedKeyPath, passphrase string) (string, error) {
-	// Open the encrypted key file
 	in, err := os.Open(filepath.Clean(encryptedKeyPath))
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("cannot open key file")
 	}
 	defer in.Close()
 
-	// Create a scrypt identity from the passphrase to decrypt the key file
 	identity, err := age.NewScryptIdentity(passphrase)
 	if err != nil {
-		return "", fmt.Errorf("invalid passphrase: %w", err)
+		return "", fmt.Errorf("invalid passphrase")
 	}
 
-	// Decrypt the age-encrypted key file
 	r, err := age.Decrypt(in, identity)
 	if err != nil {
-		return "", fmt.Errorf("failed to decrypt key (wrong passphrase?): %w", err)
+		return "", fmt.Errorf("decryption failed (wrong passphrase?)")
 	}
 
-	// Generate a random hex string for the temp filename
 	randBytes := make([]byte, 16)
 	if _, err := rand.Read(randBytes); err != nil {
-		return "", fmt.Errorf("failed to generate random filename: %w", err)
+		return "", fmt.Errorf("internal error")
 	}
-	tmpPath := filepath.Join(".", ".tmpkey-"+hex.EncodeToString(randBytes))
+	tmpPath := filepath.Join(".", tmpFilePrefix+hex.EncodeToString(randBytes))
 
 	// Register the temp file for cleanup before writing it
 	registerTempFile(tmpPath)
 
-	// Write the decrypted key to the temp file with restrictive permissions (owner-only read/write)
+	// Write the decrypted key to the temp file with restrictive permissions (0600)
 	out, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("cannot create temporary file")
 	}
 	defer out.Close()
 
 	if _, err := io.Copy(out, r); err != nil {
-		return "", err
+		return "", fmt.Errorf("error writing temporary file")
 	}
 
 	return tmpPath, nil
 }
 
-// removeTempFile deletes a temporary file and removes it from the global registry.
+// removeTempFile deletes a temporary file, verifies deletion, and removes
+// it from the global registry.
 func removeTempFile(path string) {
 	os.Remove(path)
+	// Verify the file was actually deleted
+	if fileExists(path) {
+		fmt.Fprintf(os.Stderr, "WARNING: Failed to delete temporary key file. Please delete manually: %s\n", filepath.Base(path))
+	}
 	unregisterTempFile(path)
 }
 
@@ -1101,16 +1476,16 @@ func promptSelection(reader *bufio.Reader, prompt string, max int) int {
 func readRecipient(path string) (age.Recipient, error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot open key file")
 	}
 	defer f.Close()
 
 	recipients, err := age.ParseRecipients(f)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid public key format")
 	}
 	if len(recipients) == 0 {
-		return nil, fmt.Errorf("no recipients found in %s", path)
+		return nil, fmt.Errorf("no public key found in file")
 	}
 	return recipients[0], nil
 }
@@ -1119,22 +1494,23 @@ func readRecipient(path string) (age.Recipient, error) {
 func readIdentity(path string) (age.Identity, error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot open key file")
 	}
 	defer f.Close()
 
 	identities, err := age.ParseIdentities(f)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid private key format")
 	}
 	if len(identities) == 0 {
-		return nil, fmt.Errorf("no identities found in %s", path)
+		return nil, fmt.Errorf("no private key found in file")
 	}
 	return identities[0], nil
 }
 
 // encryptFile encrypts the contents of inputPath to outputPath using
-// the provided age recipient (public key).
+// the provided age recipient (public key). Output is written with
+// restrictive permissions (0600).
 func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 	in, err := os.Open(inputPath)
 	if err != nil {
@@ -1142,7 +1518,8 @@ func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 	}
 	defer in.Close()
 
-	out, err := os.Create(outputPath)
+	// Create output file with restrictive permissions
+	out, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
@@ -1161,7 +1538,8 @@ func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 }
 
 // decryptFile decrypts the contents of inputPath to outputPath using
-// the provided age identity (private key).
+// the provided age identity (private key). Output is written with
+// restrictive permissions (0600).
 func decryptFile(inputPath, outputPath string, identity age.Identity) error {
 	in, err := os.Open(inputPath)
 	if err != nil {
@@ -1174,7 +1552,8 @@ func decryptFile(inputPath, outputPath string, identity age.Identity) error {
 		return err
 	}
 
-	out, err := os.Create(outputPath)
+	// Create output file with restrictive permissions
+	out, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return err
 	}
