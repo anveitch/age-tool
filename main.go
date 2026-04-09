@@ -6,7 +6,9 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/md5"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -19,9 +21,16 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"filippo.io/age"
 	"golang.org/x/term"
+)
+
+// Log file paths for the audit/receipt system.
+const (
+	logFile = "age-tool.log"
+	logsDir = "logs"
 )
 
 // nicknameFile is the JSON config file that stores key nicknames.
@@ -262,6 +271,12 @@ func encrypt(reader *bufio.Reader) {
 	}
 
 	fmt.Printf("\nEncrypted: %s -> %s\n", inputPath, outputPath)
+
+	// Log the encryption transaction with file hashes
+	srcMD5, srcSHA256, _ := hashFile(inputPath)
+	outMD5, outSHA256, _ := hashFile(outputPath)
+	keyNick := nicks[pubFiles[keyIdx]]
+	logEncrypt(time.Now(), inputPath, srcMD5, srcSHA256, outputPath, outMD5, outSHA256, pubFiles[keyIdx], keyNick)
 }
 
 // ─── Decrypt ────────────────────────────────────────────────────────────────
@@ -369,6 +384,12 @@ func decrypt(reader *bufio.Reader) {
 	}
 
 	fmt.Printf("\nDecrypted: %s -> %s\n", inputPath, outputPath)
+
+	// Log the decryption transaction with file hashes
+	srcMD5, srcSHA256, _ := hashFile(inputPath)
+	outMD5, outSHA256, _ := hashFile(outputPath)
+	keyNick := nicks[keyPath]
+	logDecrypt(time.Now(), inputPath, srcMD5, srcSHA256, outputPath, outMD5, outSHA256, keyPath, keyNick)
 }
 
 // ─── Key Management ─────────────────────────────────────────────────────────
@@ -528,6 +549,11 @@ func generateKeyPair(reader *bufio.Reader) {
 	fmt.Printf("\nKey pair generated successfully:\n")
 	fmt.Printf("  Public key:  %s\n", pubPath)
 	fmt.Printf("  Private key: %s [ENCRYPTED]\n", privPath)
+
+	// Log the key creation transaction with file hashes
+	pubMD5, pubSHA256, _ := hashFile(pubPath)
+	privMD5, privSHA256, _ := hashFile(privPath)
+	logKeyCreation(time.Now(), name, pubPath, pubMD5, pubSHA256, privPath, privMD5, privSHA256)
 
 	// Offer to set nicknames for the new keys independently
 	fmt.Println("\nYou can nickname each key individually via Key Management > Nickname a Key.")
@@ -742,6 +768,146 @@ func nicknameKey(reader *bufio.Reader) {
 	if err := saveNicknames(nicks); err != nil {
 		fmt.Fprintf(os.Stderr, "Error saving nicknames: %v\n", err)
 	}
+}
+
+// ─── Audit Logging ──────────────────────────────────────────────────────────
+
+// hashFile computes both the MD5 and SHA256 hex-encoded hashes of a file.
+func hashFile(path string) (md5Hex, sha256Hex string, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", err
+	}
+	defer f.Close()
+
+	md5Hash := md5.New()
+	sha256Hash := sha256.New()
+
+	// Write file contents to both hashers simultaneously
+	if _, err := io.Copy(io.MultiWriter(md5Hash, sha256Hash), f); err != nil {
+		return "", "", err
+	}
+
+	return hex.EncodeToString(md5Hash.Sum(nil)), hex.EncodeToString(sha256Hash.Sum(nil)), nil
+}
+
+// writeReceiptJSON creates an individual JSON receipt file in the logs/
+// directory. The filename is based on the transaction type and timestamp
+// e.g. encrypt-2026-04-09-143022.json. The logs directory is created
+// automatically if it doesn't exist.
+func writeReceiptJSON(txType string, timestamp time.Time, receipt map[string]string) {
+	// Ensure the logs directory exists
+	if err := os.MkdirAll(logsDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not create logs directory: %v\n", err)
+		return
+	}
+
+	// Build the receipt filename from the transaction type and timestamp
+	filename := fmt.Sprintf("%s-%s.json", txType, timestamp.Format("2006-01-02-150405"))
+	path := filepath.Join(logsDir, filename)
+
+	data, err := json.MarshalIndent(receipt, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not marshal receipt: %v\n", err)
+		return
+	}
+
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not write receipt %s: %v\n", path, err)
+	}
+}
+
+// appendLogLine appends a single human-readable summary line to the running
+// age-tool.log file. The file is created if it doesn't exist.
+func appendLogLine(line string) {
+	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not open log file: %v\n", err)
+		return
+	}
+	defer f.Close()
+
+	fmt.Fprintln(f, line)
+}
+
+// logEncrypt records an encryption transaction to both the running log file
+// and an individual JSON receipt.
+func logEncrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5, outSHA256, keyFile, keyNickname string) {
+	// Build the JSON receipt
+	receipt := map[string]string{
+		"transaction":    "encrypt",
+		"timestamp":      timestamp.Format(time.RFC3339),
+		"source_file":    srcFile,
+		"source_md5":     srcMD5,
+		"source_sha256":  srcSHA256,
+		"output_file":    outFile,
+		"output_md5":     outMD5,
+		"output_sha256":  outSHA256,
+		"public_key":     keyFile,
+		"key_nickname":   keyNickname,
+	}
+	writeReceiptJSON("encrypt", timestamp, receipt)
+
+	// Append a human-readable summary to the running log
+	keyLabel := keyFile
+	if keyNickname != "" {
+		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
+	}
+	line := fmt.Sprintf("[%s] ENCRYPT: %s -> %s | key: %s | src-sha256: %s | out-sha256: %s",
+		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, srcSHA256[:16], outSHA256[:16])
+	appendLogLine(line)
+}
+
+// logDecrypt records a decryption transaction to both the running log file
+// and an individual JSON receipt.
+func logDecrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5, outSHA256, keyFile, keyNickname string) {
+	// Build the JSON receipt
+	receipt := map[string]string{
+		"transaction":    "decrypt",
+		"timestamp":      timestamp.Format(time.RFC3339),
+		"source_file":    srcFile,
+		"source_md5":     srcMD5,
+		"source_sha256":  srcSHA256,
+		"output_file":    outFile,
+		"output_md5":     outMD5,
+		"output_sha256":  outSHA256,
+		"private_key":    keyFile,
+		"key_nickname":   keyNickname,
+	}
+	writeReceiptJSON("decrypt", timestamp, receipt)
+
+	// Append a human-readable summary to the running log
+	keyLabel := keyFile
+	if keyNickname != "" {
+		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
+	}
+	line := fmt.Sprintf("[%s] DECRYPT: %s -> %s | key: %s | src-sha256: %s | out-sha256: %s",
+		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, srcSHA256[:16], outSHA256[:16])
+	appendLogLine(line)
+}
+
+// logKeyCreation records a key creation transaction to both the running log
+// file and an individual JSON receipt.
+func logKeyCreation(timestamp time.Time, keyName, pubFile, pubMD5, pubSHA256, privFile, privMD5, privSHA256 string) {
+	// Build the JSON receipt
+	receipt := map[string]string{
+		"transaction":         "key-creation",
+		"timestamp":           timestamp.Format(time.RFC3339),
+		"key_pair_name":       keyName,
+		"public_key_file":     pubFile,
+		"public_key_md5":      pubMD5,
+		"public_key_sha256":   pubSHA256,
+		"private_key_file":    privFile,
+		"private_key_md5":     privMD5,
+		"private_key_sha256":  privSHA256,
+		"private_key_status":  "passphrase-encrypted",
+	}
+	writeReceiptJSON("key-creation", timestamp, receipt)
+
+	// Append a human-readable summary to the running log
+	line := fmt.Sprintf("[%s] KEY-CREATION: %s | pub: %s (sha256: %s) | priv: %s [ENCRYPTED] (sha256: %s)",
+		timestamp.Format("2006-01-02 15:04:05"), keyName, pubFile, pubSHA256[:16], privFile, privSHA256[:16])
+	appendLogLine(line)
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
