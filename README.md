@@ -196,3 +196,7 @@ You should now have `key1.pub` (public key) and `key1.priv` (passphrase-protecte
 - **`.age` files are safe to share.** Encrypted files can only be decrypted by the holder of the corresponding private key.
 - **Temporary files are always cleaned up.** Decrypted key material is written to hidden temporary files with restricted permissions and removed immediately after use, including on Ctrl+C.
 - **`keys.json` contains only nicknames, not key material.** It is safe to keep but is excluded from version control by default via `.gitignore`.
+
+## License
+
+This project is released under the MIT License. See the [LICENSE](LICENSE) file for details.
