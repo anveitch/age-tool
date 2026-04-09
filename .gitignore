@@ -34,3 +34,7 @@ age-tool
 # Key nickname config (contains local key metadata)
 keys.json
 /builds
+
+# Audit logs and receipts
+age-tool.log
+/logs
