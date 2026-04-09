@@ -163,6 +163,44 @@ On every launch, the application scans the current directory for `.priv` files a
     These keys are NOT passphrase-protected and cannot be used for decryption.
     Use Key Management > Encrypt a Private Key to secure them.
 
+## Transaction Logging
+
+age-tool automatically creates an audit trail for all encryption, decryption, and key creation operations.
+
+### Log Files
+
+Two types of log are maintained:
+
+- **`age-tool.log`** -- a running human-readable log file in the current directory with one line per transaction, summarising the key details at a glance
+- **`logs/` directory** -- individual JSON receipt files created for each transaction, named by type and timestamp (e.g. `encrypt-2026-04-09-143022.json`)
+
+Both are created automatically on first use.
+
+### What Is Recorded
+
+**Encrypt transactions:**
+- Date and time of the operation
+- Source filename with MD5 and SHA256 hashes
+- Output filename (`.age`) with MD5 and SHA256 hashes
+- Public key filename and nickname (if set)
+
+**Decrypt transactions:**
+- Date and time of the operation
+- Source filename (`.age`) with MD5 and SHA256 hashes
+- Output filename with MD5 and SHA256 hashes
+- Private key filename and nickname (if set)
+
+**Key creation transactions:**
+- Date and time of the operation
+- Key pair name
+- Public key filename with MD5 and SHA256 hashes
+- Private key filename with MD5 and SHA256 hashes
+- Note that the private key is passphrase-encrypted
+
+### Version Control
+
+Both `age-tool.log` and the `logs/` directory are excluded from version control via `.gitignore`. They contain operational metadata only and no key material.
+
 ## Manual Key Generation
 
 If you prefer to generate keys outside the application:
