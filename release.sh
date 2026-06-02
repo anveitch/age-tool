@@ -25,6 +25,7 @@ GITHUB_REPO="anveitch/age-tool"
 ARM64_BIN="age-tool-macos-arm64"
 INTEL_BIN="age-tool-macos-intel"
 LINUX_BIN="age-tool-linux-x64"
+LINUX_ARM64_BIN="age-tool-linux-arm64"
 WINDOWS_BIN="age-tool-windows-x64.exe"
 
 # ─── Helper functions ────────────────────────────────────────────────────────
@@ -99,7 +100,7 @@ fi
 bash ./build.sh || die "Build failed. Fix errors and try again."
 
 # Verify all expected binaries exist
-for bin in "$ARM64_BIN" "$INTEL_BIN" "$LINUX_BIN" "$WINDOWS_BIN"; do
+for bin in "$ARM64_BIN" "$INTEL_BIN" "$LINUX_BIN" "$LINUX_ARM64_BIN" "$WINDOWS_BIN"; do
   [ -f "${BUILD_DIR}/${bin}" ] || die "Expected binary not found: ${BUILD_DIR}/${bin}"
 done
 
@@ -130,6 +131,7 @@ gh release create "$TAG" \
   "${BUILD_DIR}/${ARM64_BIN}" \
   "${BUILD_DIR}/${INTEL_BIN}" \
   "${BUILD_DIR}/${LINUX_BIN}" \
+  "${BUILD_DIR}/${LINUX_ARM64_BIN}" \
   "${BUILD_DIR}/${WINDOWS_BIN}" \
   --repo "$GITHUB_REPO" \
   --title "age-tool ${TAG}" \
@@ -225,6 +227,7 @@ echo "  Binaries uploaded:"
 echo "    - ${ARM64_BIN}  (sha256: ${ARM64_SHA256})"
 echo "    - ${INTEL_BIN}  (sha256: ${INTEL_SHA256})"
 echo "    - ${LINUX_BIN}"
+echo "    - ${LINUX_ARM64_BIN}"
 echo "    - ${WINDOWS_BIN}"
 echo
 echo "  Homebrew formula updated:"

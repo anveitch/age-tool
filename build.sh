@@ -7,6 +7,7 @@
 #   - macOS Intel (darwin/amd64)
 #   - Windows x64 (windows/amd64)
 #   - Linux x64 (linux/amd64)
+#   - Linux ARM64 (linux/arm64)
 #
 
 set -e
@@ -28,6 +29,7 @@ targets=(
   "darwin  amd64  age-tool-macos-intel"
   "windows amd64  age-tool-windows-x64.exe"
   "linux   amd64  age-tool-linux-x64"
+  "linux   arm64  age-tool-linux-arm64"
 )
 
 echo "Building age-tool for all targets..."
