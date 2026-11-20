@@ -29,7 +29,7 @@ import (
 )
 
 // Application version, printed with --version flag.
-const appVersion = "1.2.1"
+const appVersion = "1.2.2"
 
 // Log file paths for the audit/receipt system.
 const (
