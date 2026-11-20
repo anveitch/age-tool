@@ -14,10 +14,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -299,6 +301,55 @@ func formatKeyName(filename string, nicks map[string]string) string {
 	return filename
 }
 
+// ─── Interrupt handling ─────────────────────────────────────────────────────
+
+// inProgressPath is the temp file currently being written by
+// writeOutputAtomically, if any, so the interrupt handler can remove it.
+// Guarded by a mutex because the handler runs in its own goroutine.
+var (
+	inProgressMu   sync.Mutex
+	inProgressPath string
+)
+
+// setInProgress records (or clears, with "") the in-progress temp file path.
+func setInProgress(path string) {
+	inProgressMu.Lock()
+	defer inProgressMu.Unlock()
+	inProgressPath = path
+}
+
+// installInterruptHandler saves the terminal's normal state and, on Ctrl+C,
+// SIGTERM or SIGHUP, restores it before exiting. Without this, interrupting
+// a hidden passphrase prompt leaves the terminal with echo switched off.
+// It also removes any half-written output file before exiting.
+func installInterruptHandler() {
+	stdinFd := int(os.Stdin.Fd())
+	var savedState *term.State
+	if term.IsTerminal(stdinFd) {
+		// Best effort: if the state can't be read, there is nothing to restore
+		savedState, _ = term.GetState(stdinFd)
+	}
+
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
+	go func() {
+		<-sigChan
+		// Restore echo and line editing if they were changed by a prompt
+		if savedState != nil {
+			_ = term.Restore(stdinFd, savedState)
+		}
+		// Remove any incomplete output so no partial plaintext is left behind
+		inProgressMu.Lock()
+		if inProgressPath != "" {
+			_ = os.Remove(inProgressPath)
+		}
+		inProgressMu.Unlock()
+		fmt.Println("\nInterrupted. Exiting.")
+		// 130 is the conventional exit status for termination by Ctrl+C
+		os.Exit(130)
+	}()
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 func main() {
@@ -307,6 +358,9 @@ func main() {
 		fmt.Printf("age-tool v%s\n", appVersion)
 		return
 	}
+
+	// Restore the terminal and clean up partial output if interrupted
+	installInterruptHandler()
 
 	// Verify the working directory is accessible and writable before starting
 	if err := checkWorkingDirectory(); err != nil {
@@ -1494,6 +1548,10 @@ func writeOutputAtomically(outputPath string, write func(w io.Writer) error) err
 		return err
 	}
 	tmpPath := tmp.Name()
+
+	// Let the interrupt handler remove this file if Ctrl+C arrives mid-write
+	setInProgress(tmpPath)
+	defer setInProgress("")
 
 	// Remove the temp file on every failure path below
 	committed := false
