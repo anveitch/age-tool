@@ -40,12 +40,12 @@ const nicknameFile = "keys.json"
 
 // Security limits.
 const (
-	maxInputLength   = 255               // Maximum length for user text inputs (names, nicknames)
+	maxInputLength   = 255                    // Maximum length for user text inputs (names, nicknames)
 	maxFileSize      = 2 * 1024 * 1024 * 1024 // 2 GB maximum file size for processing
-	minPassphraseLen = 12                // Minimum passphrase length for key encryption
-	maxPassAttempts  = 3                 // Maximum passphrase attempts before returning to menu
-	tmpFilePrefix    = ".tmpkey-"        // Prefix of temp key files written by v1.2.0 and earlier (detected and offered for deletion at startup)
-	maxKeyFileSize   = 64 * 1024         // Upper bound when reading a decrypted private key into memory
+	minPassphraseLen = 12                     // Minimum passphrase length for key encryption
+	maxPassAttempts  = 3                      // Maximum passphrase attempts before returning to menu
+	tmpFilePrefix    = ".tmpkey-"             // Prefix of temp key files written by v1.2.0 and earlier (detected and offered for deletion at startup)
+	maxKeyFileSize   = 64 * 1024              // Upper bound when reading a decrypted private key into memory
 )
 
 // errWrongPassphrase is returned by decryptKeyIdentity when the passphrase
