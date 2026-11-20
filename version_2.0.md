@@ -76,16 +76,31 @@ On Linux these follow the XDG variables (`$XDG_DATA_HOME`, `$XDG_CONFIG_HOME`, `
 
 **CLI key location (D2: key store).** The CLI uses the key store by default, from any folder. `--keys <folder>` uses a specific folder instead (`--keys .` gives the 1.x behaviour). The files being encrypted or decrypted still come from the folder age-tool is run in.
 
-- [ ] Key store directory created `0700`, and files inside it `0600`.
-- [ ] **Import public key:** from a `.pub` file, or by pasting an `age1…` string, so users can encrypt for other people (contacts).
-- [ ] **Export / share public key:** show the `age1…` string and save a copy as a file. (Clipboard comes with the GUI.)
-- [ ] **Migration:** detect keys and `keys.json` in the current folder (the 1.x layout) and offer to import them into the key store, with a "don't ask again for this folder" option. Never delete the originals automatically.
-- [ ] CLI uses the key store by default, with `--keys <folder>` to override.
-- [ ] Startup checks: open private keys and loose permissions run against the key folder (including the folder's own permissions). Leftover temp files are checked in the current folder, where output is written.
-- [ ] Central and local audit logs.
-- [ ] Tests for the path logic on each OS, the permissions, import, export, migration and both audit logs.
+- [x] Key store directory created `0700` (and tightened at startup if it was loosened), and files inside it `0600`.
+- [x] **Import public key:** from a `.pub` file, or by pasting an `age1…` string, so users can encrypt for other people (contacts). A pasted private key is refused without being echoed back.
+- [x] **Export / share public key:** show the `age1…` string and save a copy as a file, never overwriting an existing one. (Clipboard comes with the GUI.)
+- [x] **Migration:** detect keys and `keys.json` in the current folder (the 1.x layout) and offer to import them into the key store, with a "never ask for this folder" option. Copies are `0600`, existing key store files and nicknames are never overwritten, and the originals are never changed. Once everything is imported, the offer stops for that folder.
+- [x] CLI uses the key store by default, with `--keys <folder>` to override. Added `--help`.
+- [x] Startup checks: open private keys and loose permissions run against the key folder. Leftover temp files are checked in the current folder, where output is written.
+- [x] Central and local audit logs. Receipts no longer overwrite each other when two transactions happen in the same second.
+- [x] Tests for the path logic on each OS, the permissions, import, export, migration and both audit logs.
 
 **Done when:** the CLI works from any folder using the key store, and a 1.x user's keys migrate without loss.
+
+**Result:** complete. The tests rose from 23 to 36 (31 in core, 5 in the CLI). End-to-end checks used a throwaway home folder:
+
+- **`--keys .` against v1.2.2:** the same scripted session as Milestone 1 produced identical files, local audit log and receipts. The transcript differed only by the new `Keys:` line and the two new Key Management items. "Back" moved from 6 to 8; options 1–5 are unchanged.
+- **Key store workflow:**
+  - migrated a 1.x folder (keys and nicknames)
+  - imported a contact from a file and as pasted text
+  - refused a pasted private key
+  - exported a key, refusing to overwrite an existing file
+  - from an unrelated folder, encrypted and decrypted using only the key store, with a matching round trip
+  - "never ask" persisted per folder
+  - everything created was `0600` / `0700`
+- **Central log:** recorded full paths, while each local log kept the 1.x format.
+
+**Not yet done:** the README still describes the 1.x layout. It gets rewritten in Milestone 6.
 
 ## Milestone 3: Desktop GUI (Fyne)
 
@@ -167,7 +182,7 @@ Each one needs settling before the milestone it affects.
 | Milestone | Status |
 |---|---|
 | 1. Shared core package | ✅ Complete |
-| 2. Key store and standard locations | In progress |
+| 2. Key store and standard locations | ✅ Complete |
 | 3. Desktop GUI (Fyne) | Not started |
 | 4. Desktop and file manager integration | Not started |
 | 5. Build, packaging and release process | Not started |

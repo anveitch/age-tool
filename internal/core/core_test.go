@@ -573,11 +573,11 @@ func TestAuditLogRecords(t *testing.T) {
 // TestAuditLogWarnings reports, rather than fails on, an unwritable log.
 func TestAuditLogWarnings(t *testing.T) {
 	dir := t.TempDir()
-	// A file where the receipts directory should be, and a log path inside
-	// a directory that doesn't exist
+	// A file where the receipts directory should be, and a log path whose
+	// folder can't be created because a file is in the way
 	blocker := filepath.Join(dir, "logs")
 	os.WriteFile(blocker, []byte("x"), 0600)
-	a := AuditLog{LogFile: filepath.Join(dir, "missing", "age-tool.log"), ReceiptsDir: blocker}
+	a := AuditLog{LogFile: filepath.Join(blocker, "age-tool.log"), ReceiptsDir: blocker}
 
 	warnings := a.RecordEncrypt(time.Now(), "nope", "nope.age", "k.pub", "")
 	if len(warnings) != 2 {

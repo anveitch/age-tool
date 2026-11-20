@@ -9,7 +9,9 @@ package main
 import (
 	"bufio"
 	"errors"
+	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -27,23 +29,122 @@ import (
 // Application version, printed with --version flag.
 const appVersion = "1.2.2"
 
-// Where the CLI keeps its files. In 1.x everything lives in the current
-// working directory.
-const (
-	keyDir       = "."            // Directory containing .pub / .priv key files
-	nicknameFile = "keys.json"    // Key nickname file
-	logFile      = "age-tool.log" // Running audit log
-	logsDir      = "logs"         // Directory of JSON receipts
+// Where the CLI keeps its files, set once at startup by setupLocations.
+var (
+	locations    core.Locations // Standard per-user locations (key store, settings, central log)
+	keyDir       string         // Folder holding .pub / .priv files: the key store, or --keys <folder>
+	nicknameFile string         // keys.json beside the keys
+	usingStore   bool           // True when keyDir is the key store rather than a --keys folder
 )
 
-// audit is the audit log used for every transaction.
-var audit = core.AuditLog{LogFile: logFile, ReceiptsDir: logsDir}
+// options holds the parsed command-line options.
+type options struct {
+	keysDir     string // --keys <folder>: use this folder instead of the key store
+	showVersion bool   // --version
+	showHelp    bool   // --help / -h
+}
+
+// parseArgs parses command-line arguments (excluding the program name).
+// Both -flag and --flag forms are accepted.
+func parseArgs(args []string) (options, error) {
+	var opts options
+	fs := flag.NewFlagSet("age-tool", flag.ContinueOnError)
+	fs.SetOutput(io.Discard) // errors and help are printed by the caller
+	fs.StringVar(&opts.keysDir, "keys", "", "")
+	fs.BoolVar(&opts.showVersion, "version", false, "")
+	fs.BoolVar(&opts.showHelp, "help", false, "")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			opts.showHelp = true
+			return opts, nil
+		}
+		return opts, err
+	}
+	if fs.NArg() > 0 {
+		return opts, fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return opts, nil
+}
+
+// printUsage prints the command-line help.
+func printUsage() {
+	fmt.Println("Usage: age-tool [--keys <folder>]")
+	fmt.Println()
+	fmt.Println("Interactive tool to encrypt and decrypt files with age keys.")
+	fmt.Println("Files to encrypt or decrypt are taken from the current folder.")
+	fmt.Println()
+	fmt.Println("Options:")
+	fmt.Println("  --keys <folder>  Use the key files in <folder> instead of your key store")
+	fmt.Println("                   (--keys . gives the age-tool 1.x behaviour)")
+	fmt.Println("  --version        Show the version")
+	fmt.Println("  --help           Show this help")
+	if loc, err := core.DefaultLocations(); err == nil {
+		fmt.Println()
+		fmt.Printf("Your key store: %s\n", loc.KeysDir)
+		fmt.Printf("Central log:    %s\n", loc.CentralAudit().LogFile)
+	}
+}
+
+// setupLocations decides where keys live (the key store, or the --keys
+// folder) and makes sure the key store exists and is owner-only.
+func setupLocations(opts options) error {
+	loc, err := core.DefaultLocations()
+	if err != nil {
+		return err
+	}
+	locations = loc
+
+	if opts.keysDir != "" {
+		info, err := os.Stat(opts.keysDir)
+		if err != nil || !info.IsDir() {
+			return fmt.Errorf("key folder %s does not exist", opts.keysDir)
+		}
+		keyDir = opts.keysDir
+		usingStore = false
+	} else {
+		if err := core.EnsurePrivateDir(loc.KeysDir); err != nil {
+			return fmt.Errorf("cannot set up key store: %v", err)
+		}
+		keyDir = loc.KeysDir
+		usingStore = true
+	}
+	nicknameFile = filepath.Join(keyDir, core.NicknameFileName)
+	return nil
+}
+
+// keysWhere describes where the keys are, for messages: "current
+// directory", "your key store (<path>)", or the --keys folder.
+func keysWhere() string {
+	switch {
+	case core.SameDir(keyDir, "."):
+		return "current directory"
+	case usingStore:
+		return fmt.Sprintf("your key store (%s)", keyDir)
+	default:
+		return keyDir
+	}
+}
+
+// auditFor returns the audit logs for a transaction whose files are in
+// dir: the central log plus the local log in dir.
+func auditFor(dir string) core.AuditLogs {
+	return core.NewAuditLogs(locations.CentralAudit(), core.LocalAudit(dir))
+}
 
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 func main() {
-	// Handle --version flag before any other processing
-	if len(os.Args) > 1 && os.Args[1] == "--version" {
+	opts, err := parseArgs(os.Args[1:])
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n\n", err)
+		printUsage()
+		os.Exit(2)
+	}
+	if opts.showHelp {
+		printUsage()
+		return
+	}
+	if opts.showVersion {
 		fmt.Printf("age-tool v%s\n", appVersion)
 		return
 	}
@@ -57,12 +158,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Decide where keys live and prepare the key store
+	if err := setupLocations(opts); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Printf("age-tool v%s: file encryption/decryption\n", appVersion)
+	fmt.Printf("Keys: %s\n", keysWhere())
 
 	// Startup check: offer to delete temp files left by a killed session
 	cleanupLeftoverTempFiles(reader)
+
+	// Offer to bring 1.x keys in this folder into the key store
+	offerKeyMigration(reader)
 
 	// Startup health check: warn about any unencrypted .priv files
 	checkUnencryptedKeys()
@@ -174,6 +285,73 @@ func cleanupLeftoverTempFiles(reader *bufio.Reader) {
 	}
 }
 
+// offerKeyMigration looks for 1.x-style key files in the current folder
+// and, when the key store is in use, offers to copy them into it. The
+// originals are never changed. "never" stops the offer for this folder.
+func offerKeyMigration(reader *bufio.Reader) {
+	if !usingStore || core.SameDir(keyDir, ".") {
+		return
+	}
+	settings := core.LoadSettings(locations.SettingsFile())
+	if settings.IsMigrationDismissed(".") {
+		return
+	}
+	files, err := core.ListKeyFiles(".")
+	if err != nil || len(files) == 0 {
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("Key files from age-tool 1.x were found in this folder:")
+	for _, f := range files {
+		fmt.Printf("   - %s\n", f)
+	}
+	fmt.Printf("age-tool 2.0 keeps keys in your key store: %s\n", keyDir)
+	fmt.Println("Import them? Copies are made; the files here are not changed.")
+	fmt.Print("[Y]es / [n]o / ne[v]er ask for this folder: ")
+
+	switch strings.TrimSpace(strings.ToLower(readLine(reader))) {
+	case "", "y", "yes":
+		// handled below
+	case "v", "never":
+		settings.DismissMigration(".")
+		if err := settings.Save(locations.SettingsFile()); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: could not save settings: %v\n", err)
+		} else {
+			fmt.Println("OK, you won't be asked again for this folder.")
+			fmt.Println("To use the keys here directly, run: age-tool --keys .")
+		}
+		return
+	default:
+		fmt.Println("Not imported. To use the keys here directly, run: age-tool --keys .")
+		return
+	}
+
+	result, err := core.ImportKeyFiles(".", keyDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	}
+	report := func(label string, names []string) {
+		if len(names) > 0 {
+			fmt.Printf("  %s: %s\n", label, strings.Join(names, ", "))
+		}
+	}
+	report("Imported", result.Imported)
+	report("Already in key store", result.AlreadyPresent)
+	report("Skipped, a different key with this name is already in the key store", result.Conflicts)
+	report("Could not import", result.Failed)
+
+	if len(result.Imported) > 0 || len(result.AlreadyPresent) > 0 {
+		fmt.Println("Once you've checked your keys work, you can delete the originals here.")
+		fmt.Println("Until then, remember any .priv files in this folder are still private keys.")
+		// Don't offer again for this folder once everything is in the store
+		if len(result.Conflicts) == 0 && len(result.Failed) == 0 {
+			settings.DismissMigration(".")
+			_ = settings.Save(locations.SettingsFile())
+		}
+	}
+}
+
 // checkUnencryptedKeys warns about any .priv files that are not
 // passphrase-protected, so the user is immediately aware of insecure keys.
 func checkUnencryptedKeys() {
@@ -262,7 +440,7 @@ func encrypt(reader *bufio.Reader) {
 		return
 	}
 	if len(pubFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "No .pub key files found in current directory.")
+		fmt.Fprintf(os.Stderr, "No .pub key files found in %s.\n", keysWhere())
 		return
 	}
 
@@ -299,7 +477,7 @@ func encrypt(reader *bufio.Reader) {
 	}
 
 	fmt.Printf("\nEncrypted: %s -> %s\n", inputPath, outputPath)
-	printWarnings(audit.RecordEncrypt(time.Now(), inputPath, outputPath, keyFile, nicks[keyFile]))
+	printWarnings(auditFor(filepath.Dir(outputPath)).RecordEncrypt(time.Now(), inputPath, outputPath, keyFile, nicks[keyFile]))
 }
 
 // ─── Decrypt ────────────────────────────────────────────────────────────────
@@ -344,7 +522,7 @@ func decrypt(reader *bufio.Reader) {
 		return
 	}
 	if len(privFiles) == 0 {
-		fmt.Fprintln(os.Stderr, "No .priv key files found in current directory.")
+		fmt.Fprintf(os.Stderr, "No .priv key files found in %s.\n", keysWhere())
 		return
 	}
 
@@ -418,7 +596,7 @@ func decrypt(reader *bufio.Reader) {
 	}
 
 	fmt.Printf("\nDecrypted: %s -> %s\n", inputPath, outputPath)
-	printWarnings(audit.RecordDecrypt(time.Now(), inputPath, outputPath, keyFile, nicks[keyFile]))
+	printWarnings(auditFor(filepath.Dir(outputPath)).RecordDecrypt(time.Now(), inputPath, outputPath, keyFile, nicks[keyFile]))
 }
 
 // ─── Key Management ─────────────────────────────────────────────────────────
@@ -433,8 +611,10 @@ func keyManagement(reader *bufio.Reader) {
 		fmt.Println("3) Encrypt a Private Key")
 		fmt.Println("4) Delete a Key Pair")
 		fmt.Println("5) Nickname a Key")
-		fmt.Println("6) Back")
-		fmt.Print("\nChoose [1-6]: ")
+		fmt.Println("6) Import a Public Key (someone else's)")
+		fmt.Println("7) Export / Share a Public Key")
+		fmt.Println("8) Back")
+		fmt.Print("\nChoose [1-8]: ")
 
 		switch strings.TrimSpace(readLine(reader)) {
 		case "1":
@@ -448,6 +628,10 @@ func keyManagement(reader *bufio.Reader) {
 		case "5":
 			nicknameKey(reader)
 		case "6":
+			importPublicKey(reader)
+		case "7":
+			exportPublicKey(reader)
+		case "8":
 			return
 		default:
 			fmt.Fprintln(os.Stderr, "Invalid choice, try again.")
@@ -461,12 +645,12 @@ func keyManagement(reader *bufio.Reader) {
 func listKeys() {
 	pairs, _ := core.ListKeyPairs(keyDir)
 	if len(pairs) == 0 {
-		fmt.Println("\nNo key files found in current directory.")
+		fmt.Printf("\nNo key files found in %s.\n", keysWhere())
 		return
 	}
 
 	nicks := core.LoadNicknames(nicknameFile)
-	fmt.Println("\nKey pairs in current directory:")
+	fmt.Printf("\nKey pairs in %s:\n", keysWhere())
 	fmt.Println()
 
 	for _, p := range pairs {
@@ -538,7 +722,7 @@ func generateKeyPair(reader *bufio.Reader) {
 	fmt.Printf("  Public key:  %s\n", pubPath)
 	fmt.Printf("  Private key: %s [ENCRYPTED]\n", privPath)
 
-	printWarnings(audit.RecordKeyCreation(time.Now(), name, pubPath, privPath))
+	printWarnings(auditFor(keyDir).RecordKeyCreation(time.Now(), name, pubPath, privPath))
 
 	fmt.Println("\nYou can nickname each key individually via Key Management > Nickname a Key.")
 }
@@ -596,7 +780,7 @@ func encryptPrivateKey(reader *bufio.Reader) {
 func deleteKeyPair(reader *bufio.Reader) {
 	pairs, _ := core.ListKeyPairs(keyDir)
 	if len(pairs) == 0 {
-		fmt.Println("\nNo key files found in current directory.")
+		fmt.Printf("\nNo key files found in %s.\n", keysWhere())
 		return
 	}
 
@@ -656,7 +840,7 @@ func nicknameKey(reader *bufio.Reader) {
 		return
 	}
 	if len(keyFiles) == 0 {
-		fmt.Println("\nNo key files found in current directory.")
+		fmt.Printf("\nNo key files found in %s.\n", keysWhere())
 		return
 	}
 
@@ -692,6 +876,122 @@ func nicknameKey(reader *bufio.Reader) {
 	if err := nicks.Save(nicknameFile); err != nil {
 		fmt.Fprintln(os.Stderr, "Error saving nicknames.")
 	}
+}
+
+// importPublicKey adds someone else's public key (a "contact") so files can
+// be encrypted for them. The key can be pasted or read from a .pub file.
+func importPublicKey(reader *bufio.Reader) {
+	fmt.Println("\nPaste their public key (starts with age1...), or enter the path to their .pub file.")
+	fmt.Print("Public key or file: ")
+	entry := strings.TrimSpace(readLine(reader))
+	if entry == "" {
+		fmt.Println("Import cancelled.")
+		return
+	}
+
+	// Treat the entry as a key if it looks like one (public or, by mistake,
+	// private, which ParsePublicKey refuses without echoing it), otherwise
+	// as a file path
+	keyText := entry
+	looksLikeKey := strings.HasPrefix(entry, "age1") || strings.Contains(strings.ToUpper(entry), "AGE-SECRET-KEY-")
+	if !looksLikeKey {
+		text, err := core.ReadPublicKeyString(entry)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return
+		}
+		keyText = text
+	}
+	key, err := core.ParsePublicKey(keyText)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
+	fmt.Print("Name for this key (e.g. alice): ")
+	name, err := core.SanitiseInput(readLine(reader))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	if name == "" {
+		fmt.Fprintln(os.Stderr, "Name cannot be empty.")
+		return
+	}
+
+	path, err := core.ImportPublicKey(keyDir, name, key)
+	if errors.Is(err, core.ErrKeyExists) {
+		fmt.Fprintf(os.Stderr, "Key files for '%s' already exist. Choose a different name.\n", name)
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Public key saved: %s\n", path)
+
+	// Optional nickname, e.g. the person's full name
+	fmt.Print("Nickname (optional, press Enter to skip): ")
+	nick, err := core.SanitiseInput(readLine(reader))
+	if err == nil && nick != "" {
+		nicks := core.LoadNicknames(nicknameFile)
+		nicks[filepath.Base(path)] = nick
+		if err := nicks.Save(nicknameFile); err != nil {
+			fmt.Fprintln(os.Stderr, "Error saving nicknames.")
+		} else {
+			fmt.Printf("Nickname '%s' applied to %s.\n", nick, filepath.Base(path))
+		}
+	}
+	fmt.Println("You can now choose this key when encrypting files for them.")
+}
+
+// exportPublicKey shows a public key so it can be shared, and offers to
+// save a copy in the current folder.
+func exportPublicKey(reader *bufio.Reader) {
+	pubFiles, err := core.ListPublicKeys(keyDir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error listing key files.")
+		return
+	}
+	if len(pubFiles) == 0 {
+		fmt.Fprintf(os.Stderr, "No .pub key files found in %s.\n", keysWhere())
+		return
+	}
+
+	nicks := core.LoadNicknames(nicknameFile)
+	fmt.Println("\nPublic key files:")
+	for i, f := range pubFiles {
+		fmt.Printf("  %d) %s\n", i+1, nicks.Label(f))
+	}
+	idx, ok := promptSelectionOrBack(reader, "Select public key to share", len(pubFiles))
+	if !ok {
+		return
+	}
+	pubFile := pubFiles[idx]
+
+	key, err := core.ReadPublicKeyString(filepath.Join(keyDir, pubFile))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	fmt.Printf("\nPublic key %s:\n\n  %s\n\n", nicks.Label(pubFile), key)
+	fmt.Println("Share this with anyone who needs to encrypt files for you.")
+	fmt.Println("It is safe to share. Never share a .priv file.")
+
+	// The key folder already holds the file, so only offer a copy elsewhere
+	if core.SameDir(keyDir, ".") {
+		return
+	}
+	fmt.Printf("\nSave a copy as %s in the current folder? [y/N]: ", pubFile)
+	answer := strings.TrimSpace(strings.ToLower(readLine(reader)))
+	if answer != "y" && answer != "yes" {
+		return
+	}
+	if err := core.ExportPublicKey(filepath.Join(keyDir, pubFile), pubFile); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+	fmt.Printf("Saved: %s\n", pubFile)
 }
 
 // ─── Prompt helpers ─────────────────────────────────────────────────────────

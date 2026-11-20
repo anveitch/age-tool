@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -21,9 +22,14 @@ import (
 // JSON receipt per transaction in a receipts directory. No passphrases or
 // key material are ever logged — only filenames, hashes, timestamps and
 // nicknames.
+//
+// A log records file paths either in full (AbsolutePaths, used for the
+// central log) or relative to the log's own folder (used for local logs,
+// matching the 1.x format).
 type AuditLog struct {
-	LogFile     string // Path of the running human-readable log, e.g. age-tool.log
-	ReceiptsDir string // Directory for JSON receipts, e.g. logs/
+	LogFile       string // Path of the running human-readable log, e.g. age-tool.log
+	ReceiptsDir   string // Directory for JSON receipts, e.g. logs/
+	AbsolutePaths bool   // Record full paths rather than paths relative to the log
 }
 
 // Logging failures never stop an operation, so each Record method returns
@@ -74,12 +80,36 @@ func keyLabel(keyFile, nickname string) string {
 	return keyFile
 }
 
+// displayPath returns how a file path is recorded in this log: the full
+// path for a log with AbsolutePaths, otherwise the path relative to the
+// log's folder (e.g. "report.pdf" for a file beside the log). A path that
+// isn't inside the log's folder is recorded in full.
+func (a AuditLog) displayPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return path
+	}
+	if a.AbsolutePaths {
+		return abs
+	}
+	logDir, err := filepath.Abs(filepath.Dir(a.LogFile))
+	if err != nil {
+		return path
+	}
+	rel, err := filepath.Rel(logDir, abs)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return abs
+	}
+	return rel
+}
+
 // RecordEncrypt logs an encryption of srcFile to outFile with the public
 // key keyFile. Both files are hashed; a hash that can't be computed is
 // recorded as empty. Returns any logging problems as warnings.
 func (a AuditLog) RecordEncrypt(timestamp time.Time, srcFile, outFile, keyFile, keyNickname string) []error {
 	srcMD5, srcSHA256, _ := HashFile(srcFile)
 	outMD5, outSHA256, _ := HashFile(outFile)
+	srcFile, outFile = a.displayPath(srcFile), a.displayPath(outFile)
 
 	warnings := a.writeReceipt("encrypt", timestamp, map[string]string{
 		"transaction":   "encrypt",
@@ -105,6 +135,7 @@ func (a AuditLog) RecordEncrypt(timestamp time.Time, srcFile, outFile, keyFile, 
 func (a AuditLog) RecordDecrypt(timestamp time.Time, srcFile, outFile, keyFile, keyNickname string) []error {
 	srcMD5, srcSHA256, _ := HashFile(srcFile)
 	outMD5, outSHA256, _ := HashFile(outFile)
+	srcFile, outFile = a.displayPath(srcFile), a.displayPath(outFile)
 
 	warnings := a.writeReceipt("decrypt", timestamp, map[string]string{
 		"transaction":   "decrypt",
@@ -130,6 +161,7 @@ func (a AuditLog) RecordDecrypt(timestamp time.Time, srcFile, outFile, keyFile, 
 func (a AuditLog) RecordKeyCreation(timestamp time.Time, keyName, pubFile, privFile string) []error {
 	pubMD5, pubSHA256, _ := HashFile(pubFile)
 	privMD5, privSHA256, _ := HashFile(privFile)
+	pubFile, privFile = a.displayPath(pubFile), a.displayPath(privFile)
 
 	warnings := a.writeReceipt("key-creation", timestamp, map[string]string{
 		"transaction":        "key-creation",
@@ -166,27 +198,96 @@ func (a AuditLog) writeReceipt(txType string, timestamp time.Time, receipt map[s
 		}
 	}
 
-	filename := fmt.Sprintf("%s-%s.json", txType, timestamp.Format("2006-01-02-150405"))
-	path := filepath.Join(a.ReceiptsDir, filename)
-
 	data, err := json.MarshalIndent(receipt, "", "  ")
 	if err != nil {
 		return append(warnings, errMarshal)
 	}
-	if err := os.WriteFile(path, append(data, '\n'), 0600); err != nil {
-		warnings = append(warnings, errReceipt)
+
+	// Receipts are named to the second; if several transactions share a
+	// second, number the later ones (-2, -3, ...) rather than overwrite.
+	base := fmt.Sprintf("%s-%s", txType, timestamp.Format("2006-01-02-150405"))
+	for n := 1; n <= 1000; n++ {
+		name := base + ".json"
+		if n > 1 {
+			name = fmt.Sprintf("%s-%d.json", base, n)
+		}
+		err := writeNewFile(filepath.Join(a.ReceiptsDir, name), append(data, '\n'))
+		if err == nil {
+			return warnings
+		}
+		if !errors.Is(err, os.ErrExist) {
+			break
+		}
 	}
-	return warnings
+	return append(warnings, errReceipt)
 }
 
 // appendLine appends a single line to the running log file, creating it
-// owner-only (0600) if it doesn't exist.
+// owner-only (0600) if it doesn't exist. A missing parent folder is created
+// owner-only (0700); an existing folder's permissions are left alone, since
+// a local log may sit in the user's own documents folder.
 func (a AuditLog) appendLine(line string) []error {
-	f, err := os.OpenFile(a.LogFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err := os.MkdirAll(filepath.Dir(a.LogFile), 0700); err != nil {
+		return []error{errLogFile}
+	}
+	f, err := os.OpenFile(filepath.Clean(a.LogFile), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return []error{errLogFile}
 	}
 	defer f.Close()
 	fmt.Fprintln(f, line)
 	return nil
+}
+
+// AuditLogs records each transaction to several audit logs, e.g. the
+// central log and the local log beside the file.
+type AuditLogs []AuditLog
+
+// NewAuditLogs combines logs, dropping any that write to the same log file
+// as an earlier one (e.g. when the local folder is the central folder).
+func NewAuditLogs(logs ...AuditLog) AuditLogs {
+	var result AuditLogs
+	seen := map[string]bool{}
+	for _, l := range logs {
+		key, err := filepath.Abs(l.LogFile)
+		if err != nil {
+			key = l.LogFile
+		}
+		if !seen[key] {
+			seen[key] = true
+			result = append(result, l)
+		}
+	}
+	return result
+}
+
+// each runs record against every log and collects the warnings. When
+// there is more than one log, each warning names the log it came from.
+func (ls AuditLogs) each(record func(AuditLog) []error) []error {
+	var warnings []error
+	for _, l := range ls {
+		for _, w := range record(l) {
+			if len(ls) > 1 {
+				w = fmt.Errorf("%w (%s)", w, filepath.Dir(l.LogFile))
+			}
+			warnings = append(warnings, w)
+		}
+	}
+	return warnings
+}
+
+// RecordEncrypt logs an encryption to every log. See AuditLog.RecordEncrypt.
+func (ls AuditLogs) RecordEncrypt(timestamp time.Time, srcFile, outFile, keyFile, keyNickname string) []error {
+	return ls.each(func(l AuditLog) []error { return l.RecordEncrypt(timestamp, srcFile, outFile, keyFile, keyNickname) })
+}
+
+// RecordDecrypt logs a decryption to every log. See AuditLog.RecordDecrypt.
+func (ls AuditLogs) RecordDecrypt(timestamp time.Time, srcFile, outFile, keyFile, keyNickname string) []error {
+	return ls.each(func(l AuditLog) []error { return l.RecordDecrypt(timestamp, srcFile, outFile, keyFile, keyNickname) })
+}
+
+// RecordKeyCreation logs a key creation to every log. See
+// AuditLog.RecordKeyCreation.
+func (ls AuditLogs) RecordKeyCreation(timestamp time.Time, keyName, pubFile, privFile string) []error {
+	return ls.each(func(l AuditLog) []error { return l.RecordKeyCreation(timestamp, keyName, pubFile, privFile) })
 }

@@ -65,3 +65,33 @@ func TestConfirmOverwrite(t *testing.T) {
 		t.Error("answering y should allow overwriting")
 	}
 }
+
+// TestParseArgs covers the supported options, both -flag and --flag forms,
+// and rejection of unknown options and stray arguments.
+func TestParseArgs(t *testing.T) {
+	cases := []struct {
+		args    []string
+		want    options
+		wantErr bool
+	}{
+		{nil, options{}, false},
+		{[]string{"--keys", "/media/usb/keys"}, options{keysDir: "/media/usb/keys"}, false},
+		{[]string{"-keys=."}, options{keysDir: "."}, false},
+		{[]string{"--version"}, options{showVersion: true}, false},
+		{[]string{"--help"}, options{showHelp: true}, false},
+		{[]string{"-h"}, options{showHelp: true}, false},
+		{[]string{"--bogus"}, options{}, true},
+		{[]string{"--keys"}, options{}, true},
+		{[]string{"stray"}, options{}, true},
+	}
+	for _, c := range cases {
+		got, err := parseArgs(c.args)
+		if (err != nil) != c.wantErr {
+			t.Errorf("parseArgs(%q): err = %v, wantErr %v", c.args, err, c.wantErr)
+			continue
+		}
+		if !c.wantErr && got != c.want {
+			t.Errorf("parseArgs(%q) = %+v, want %+v", c.args, got, c.want)
+		}
+	}
+}
