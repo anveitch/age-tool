@@ -140,7 +140,7 @@ func confirmOverwrite(reader *bufio.Reader, path string) bool {
 		return true
 	}
 	fmt.Printf("\nFile '%s' already exists. Overwrite? [y/N]: ", filepath.Base(path))
-	answer, _ := reader.ReadString('\n')
+	answer := readLine(reader)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	return answer == "y" || answer == "yes"
 }
@@ -278,7 +278,7 @@ func offerFixPermissions(reader *bufio.Reader, path string) {
 	}
 	fmt.Printf("  WARNING: %s — %s\n", filepath.Base(path), warning)
 	fmt.Printf("  Fix permissions to owner-only (0600)? [Y/n]: ")
-	answer, _ := reader.ReadString('\n')
+	answer := readLine(reader)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer == "" || answer == "y" || answer == "yes" {
 		if err := os.Chmod(path, 0600); err != nil {
@@ -374,7 +374,7 @@ func main() {
 		fmt.Println("4) Quit")
 		fmt.Print("\nChoose [1/2/3/4/q]: ")
 
-		choice, _ := reader.ReadString('\n')
+		choice := readLine(reader)
 		choice = strings.TrimSpace(choice)
 
 		// Accept "4", "q", or "Q" as quit commands
@@ -420,7 +420,7 @@ func cleanupLeftoverTempFiles(reader *bufio.Reader) {
 		fmt.Printf("   - %s\n", f)
 	}
 	fmt.Print("These may contain decrypted key material. Delete them now? [Y/n]: ")
-	answer, _ := reader.ReadString('\n')
+	answer := readLine(reader)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer == "" || answer == "y" || answer == "yes" {
 		for _, f := range leftovers {
@@ -750,7 +750,7 @@ func keyManagement(reader *bufio.Reader) {
 		fmt.Println("6) Back")
 		fmt.Print("\nChoose [1-6]: ")
 
-		choice, _ := reader.ReadString('\n')
+		choice := readLine(reader)
 		choice = strings.TrimSpace(choice)
 
 		switch choice {
@@ -850,7 +850,7 @@ func listKeys() {
 func generateKeyPair(reader *bufio.Reader) {
 	// Prompt for the key pair name
 	fmt.Print("\nKey pair name: ")
-	rawName, _ := reader.ReadString('\n')
+	rawName := readLine(reader)
 	name, err := sanitiseInput(rawName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1044,7 +1044,7 @@ func deleteKeyPair(reader *bufio.Reader) {
 
 	// Ask for confirmation before deleting
 	fmt.Printf("\nAre you sure you want to delete '%s'? This cannot be undone. [y/N]: ", base)
-	confirm, _ := reader.ReadString('\n')
+	confirm := readLine(reader)
 	confirm = strings.TrimSpace(strings.ToLower(confirm))
 	if confirm != "y" && confirm != "yes" {
 		fmt.Println("Deletion cancelled.")
@@ -1110,7 +1110,7 @@ func nicknameKey(reader *bufio.Reader) {
 
 	// Prompt for the new nickname with input sanitisation
 	fmt.Print("Enter nickname: ")
-	rawNick, _ := reader.ReadString('\n')
+	rawNick := readLine(reader)
 	nick, err := sanitiseInput(rawNick)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -1151,6 +1151,16 @@ func hashFile(path string) (md5Hex, sha256Hex string, err error) {
 	}
 
 	return hex.EncodeToString(md5Hash.Sum(nil)), hex.EncodeToString(sha256Hash.Sum(nil)), nil
+}
+
+// shortHash returns the first 16 characters of a hex hash for the
+// one-line log. If hashing failed and the hash is empty or short, it
+// returns "unavailable" instead of panicking on an out-of-range slice.
+func shortHash(h string) string {
+	if len(h) < 16 {
+		return "unavailable"
+	}
+	return h[:16]
 }
 
 // writeReceiptJSON creates an individual JSON receipt file in the logs/
@@ -1224,7 +1234,7 @@ func logEncrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5
 		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
 	}
 	line := fmt.Sprintf("[%s] ENCRYPT: %s -> %s | key: %s | src-sha256: %s | out-sha256: %s",
-		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, srcSHA256[:16], outSHA256[:16])
+		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, shortHash(srcSHA256), shortHash(outSHA256))
 	appendLogLine(line)
 }
 
@@ -1250,7 +1260,7 @@ func logDecrypt(timestamp time.Time, srcFile, srcMD5, srcSHA256, outFile, outMD5
 		keyLabel = fmt.Sprintf("%s (%s)", keyNickname, keyFile)
 	}
 	line := fmt.Sprintf("[%s] DECRYPT: %s -> %s | key: %s | src-sha256: %s | out-sha256: %s",
-		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, srcSHA256[:16], outSHA256[:16])
+		timestamp.Format("2006-01-02 15:04:05"), srcFile, outFile, keyLabel, shortHash(srcSHA256), shortHash(outSHA256))
 	appendLogLine(line)
 }
 
@@ -1272,7 +1282,7 @@ func logKeyCreation(timestamp time.Time, keyName, pubFile, pubMD5, pubSHA256, pr
 	writeReceiptJSON("key-creation", timestamp, receipt)
 
 	line := fmt.Sprintf("[%s] KEY-CREATION: %s | pub: %s (sha256: %s) | priv: %s [ENCRYPTED] (sha256: %s)",
-		timestamp.Format("2006-01-02 15:04:05"), keyName, pubFile, pubSHA256[:16], privFile, privSHA256[:16])
+		timestamp.Format("2006-01-02 15:04:05"), keyName, pubFile, shortHash(pubSHA256), privFile, shortHash(privSHA256))
 	appendLogLine(line)
 }
 
@@ -1458,12 +1468,28 @@ func listFiles(dir string, filter func(string) bool) ([]string, error) {
 	return result, nil
 }
 
+// readLine reads one line of user input. If input has ended (Ctrl+D, a
+// closed pipe, or end of a redirected file) and nothing was read, it
+// cleans up any temporary key files and exits, rather than letting the
+// caller loop forever on empty input. A final line without a trailing
+// newline is still returned; the following call will then exit.
+func readLine(reader *bufio.Reader) string {
+	line, err := reader.ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Println("\nInput closed. Exiting.")
+		// os.Exit skips deferred calls, so clean up temp files explicitly
+		cleanupTempFiles()
+		os.Exit(0)
+	}
+	return line
+}
+
 // promptSelection repeatedly prompts the user until they enter a valid
 // number between 1 and max. Returns a zero-based index.
 func promptSelection(reader *bufio.Reader, prompt string, max int) int {
 	for {
 		fmt.Printf("%s [1-%d]: ", prompt, max)
-		input, _ := reader.ReadString('\n')
+		input := readLine(reader)
 		n, err := strconv.Atoi(strings.TrimSpace(input))
 		if err == nil && n >= 1 && n <= max {
 			return n - 1
