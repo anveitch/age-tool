@@ -2,6 +2,9 @@
 #
 # build.sh - Cross-compile age-tool for multiple platforms.
 #
+# Binaries are built static (CGO disabled), with local paths trimmed and
+# debug symbols stripped, so release builds are smaller and reproducible.
+#
 # Builds the following targets into the ./builds directory:
 #   - macOS Apple Silicon (darwin/arm64)
 #   - macOS Intel (darwin/amd64)
@@ -41,8 +44,12 @@ for target in "${targets[@]}"; do
 
   echo "Building: $output (${goos}/${goarch})"
 
-  # Attempt the build, capturing any errors
-  if GOOS="$goos" GOARCH="$goarch" go build -o "${BUILD_DIR}/${output}" .; then
+  # Attempt the build, capturing any errors. Hardening flags:
+  #   CGO_ENABLED=0  fully static binary with no C toolchain or libc dependency
+  #   -trimpath      strip local filesystem paths (e.g. /Users/...) from the binary
+  #   -s -w          omit symbol table and DWARF debug info (smaller binary)
+  if CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+       go build -trimpath -ldflags="-s -w" -o "${BUILD_DIR}/${output}" .; then
     echo "  -> Success: ${BUILD_DIR}/${output}"
     successful+=("$output")
   else
