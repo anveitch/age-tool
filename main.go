@@ -6,7 +6,7 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501 -- MD5 is a convenience fingerprint in audit logs alongside SHA256, not used for security
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -973,7 +973,7 @@ func encryptPrivateKey(reader *bufio.Reader) {
 	keyPath := openKeys[idx]
 
 	// Read the plaintext private key from the file
-	keyData, err := os.ReadFile(keyPath)
+	keyData, err := os.ReadFile(keyPath) // #nosec G304 -- keyPath comes from a listing of the current directory
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Error reading key file.")
 		return
@@ -1159,13 +1159,13 @@ func nicknameKey(reader *bufio.Reader) {
 
 // hashFile computes both the MD5 and SHA256 hex-encoded hashes of a file.
 func hashFile(path string) (md5Hex, sha256Hex string, err error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) // #nosec G304 -- path is a file this tool just read or wrote in the current directory
 	if err != nil {
 		return "", "", err
 	}
 	defer f.Close()
 
-	md5Hash := md5.New()
+	md5Hash := md5.New() // #nosec G401 -- see crypto/md5 import: audit fingerprint only
 	sha256Hash := sha256.New()
 
 	// Write file contents to both hashers simultaneously
@@ -1201,7 +1201,7 @@ func writeReceiptJSON(txType string, timestamp time.Time, receipt map[string]str
 	// Verify logs directory permissions are not overly permissive
 	if info, err := os.Stat(logsDir); err == nil {
 		if info.Mode().Perm()&0077 != 0 {
-			if err := os.Chmod(logsDir, 0700); err != nil {
+			if err := os.Chmod(logsDir, 0700); err != nil { // #nosec G302 -- directories need the execute bit; 0700 is owner-only
 				fmt.Fprintln(os.Stderr, "Warning: could not restrict logs directory permissions to 0700.")
 			}
 		}
@@ -1557,8 +1557,8 @@ func writeOutputAtomically(outputPath string, write func(w io.Writer) error) err
 	committed := false
 	defer func() {
 		if !committed {
-			tmp.Close()
-			os.Remove(tmpPath)
+			_ = tmp.Close() // best-effort cleanup; the write error is what gets reported
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
@@ -1585,7 +1585,7 @@ func writeOutputAtomically(outputPath string, write func(w io.Writer) error) err
 // the provided age recipient (public key). Output is written atomically
 // with restrictive permissions (0600).
 func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
-	in, err := os.Open(inputPath)
+	in, err := os.Open(inputPath) // #nosec G304 -- inputPath comes from a listing of the current directory
 	if err != nil {
 		return err
 	}
@@ -1610,7 +1610,7 @@ func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 // truncated, age's per-chunk authentication fails part-way through and no
 // output file is produced.
 func decryptFile(inputPath, outputPath string, identity age.Identity) error {
-	in, err := os.Open(inputPath)
+	in, err := os.Open(inputPath) // #nosec G304 -- inputPath comes from a listing of the current directory
 	if err != nil {
 		return err
 	}
