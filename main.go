@@ -40,12 +40,13 @@ const nicknameFile = "keys.json"
 
 // Security limits.
 const (
-	maxInputLength   = 255                    // Maximum length for user text inputs (names, nicknames)
-	maxFileSize      = 2 * 1024 * 1024 * 1024 // 2 GB maximum file size for processing
-	minPassphraseLen = 12                     // Minimum passphrase length for key encryption
-	maxPassAttempts  = 3                      // Maximum passphrase attempts before returning to menu
-	tmpFilePrefix    = ".tmpkey-"             // Prefix of temp key files written by v1.2.0 and earlier (detected and offered for deletion at startup)
-	maxKeyFileSize   = 64 * 1024              // Upper bound when reading a decrypted private key into memory
+	maxInputLength    = 255                    // Maximum length for user text inputs (names, nicknames)
+	maxFileSize       = 2 * 1024 * 1024 * 1024 // 2 GB maximum file size for processing
+	minPassphraseLen  = 12                     // Minimum passphrase length for key encryption
+	maxPassAttempts   = 3                      // Maximum passphrase attempts before returning to menu
+	tmpFilePrefix     = ".tmpkey-"             // Prefix of temp key files written by v1.2.0 and earlier (detected and offered for deletion at startup)
+	maxKeyFileSize    = 64 * 1024              // Upper bound when reading a decrypted private key into memory
+	partialFilePrefix = ".age-tool-partial-"   // Prefix of in-progress encrypt/decrypt output, renamed into place only on success
 )
 
 // errWrongPassphrase is returned by decryptKeyIdentity when the passphrase
@@ -358,8 +359,10 @@ func main() {
 	}
 }
 
-// cleanupLeftoverTempFiles scans for any .tmpkey-* files left from a previous
-// crashed session and prompts the user to delete them.
+// cleanupLeftoverTempFiles scans for temporary files left by a previous
+// session that was killed mid-operation, and prompts the user to delete them:
+//   - .tmpkey-*           decrypted private keys written by v1.2.0 and earlier
+//   - .age-tool-partial-* incomplete encrypt/decrypt output (may be plaintext)
 func cleanupLeftoverTempFiles(reader *bufio.Reader) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -368,8 +371,9 @@ func cleanupLeftoverTempFiles(reader *bufio.Reader) {
 
 	var leftovers []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), tmpFilePrefix) {
-			leftovers = append(leftovers, e.Name())
+		name := e.Name()
+		if !e.IsDir() && (strings.HasPrefix(name, tmpFilePrefix) || strings.HasPrefix(name, partialFilePrefix)) {
+			leftovers = append(leftovers, name)
 		}
 	}
 
@@ -378,11 +382,11 @@ func cleanupLeftoverTempFiles(reader *bufio.Reader) {
 	}
 
 	fmt.Println()
-	fmt.Println("!! WARNING: Leftover temporary key file(s) found from a previous session !!")
+	fmt.Println("!! WARNING: Leftover temporary file(s) found from a previous session !!")
 	for _, f := range leftovers {
 		fmt.Printf("   - %s\n", f)
 	}
-	fmt.Print("These may contain decrypted key material. Delete them now? [Y/n]: ")
+	fmt.Print("These may contain decrypted key material or partial plaintext. Delete them now? [Y/n]: ")
 	answer := readLine(reader)
 	answer = strings.TrimSpace(strings.ToLower(answer))
 	if answer == "" || answer == "y" || answer == "yes" {
@@ -1476,9 +1480,52 @@ func readRecipient(path string) (age.Recipient, error) {
 	return recipients[0], nil
 }
 
+// writeOutputAtomically writes an output file so that it only ever appears
+// complete. The write callback streams into a hidden temporary file in the
+// current directory (created owner-only, 0600); only after the callback
+// succeeds and the data is flushed to disk is the temp file renamed over
+// outputPath. On any failure the temp file is removed and outputPath is left
+// untouched, so a failed or corrupted decryption never leaves a truncated
+// plaintext file behind or destroys an existing file.
+func writeOutputAtomically(outputPath string, write func(w io.Writer) error) error {
+	// os.CreateTemp creates the file with 0600 permissions and a random suffix
+	tmp, err := os.CreateTemp(".", partialFilePrefix+"*")
+	if err != nil {
+		return err
+	}
+	tmpPath := tmp.Name()
+
+	// Remove the temp file on every failure path below
+	committed := false
+	defer func() {
+		if !committed {
+			tmp.Close()
+			os.Remove(tmpPath)
+		}
+	}()
+
+	if err := write(tmp); err != nil {
+		return err
+	}
+	// Flush to disk before the rename so a crash can't leave an empty or
+	// partial file under the final name
+	if err := tmp.Sync(); err != nil {
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	// Atomically replace (or create) the final output file
+	if err := os.Rename(tmpPath, outputPath); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
 // encryptFile encrypts the contents of inputPath to outputPath using
-// the provided age recipient (public key). Output is written with
-// restrictive permissions (0600).
+// the provided age recipient (public key). Output is written atomically
+// with restrictive permissions (0600).
 func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 	in, err := os.Open(inputPath)
 	if err != nil {
@@ -1486,28 +1533,24 @@ func encryptFile(inputPath, outputPath string, recipient age.Recipient) error {
 	}
 	defer in.Close()
 
-	// Create output file with restrictive permissions
-	out, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	w, err := age.Encrypt(out, recipient)
-	if err != nil {
-		return err
-	}
-
-	if _, err := io.Copy(w, in); err != nil {
-		return err
-	}
-
-	return w.Close()
+	return writeOutputAtomically(outputPath, func(out io.Writer) error {
+		w, err := age.Encrypt(out, recipient)
+		if err != nil {
+			return err
+		}
+		if _, err := io.Copy(w, in); err != nil {
+			return err
+		}
+		// Close writes the final authenticated chunk; it must succeed
+		return w.Close()
+	})
 }
 
 // decryptFile decrypts the contents of inputPath to outputPath using
-// the provided age identity (private key). Output is written with
-// restrictive permissions (0600).
+// the provided age identity (private key). Output is written atomically
+// with restrictive permissions (0600): if the ciphertext is corrupted or
+// truncated, age's per-chunk authentication fails part-way through and no
+// output file is produced.
 func decryptFile(inputPath, outputPath string, identity age.Identity) error {
 	in, err := os.Open(inputPath)
 	if err != nil {
@@ -1515,18 +1558,14 @@ func decryptFile(inputPath, outputPath string, identity age.Identity) error {
 	}
 	defer in.Close()
 
+	// Check the header and key before creating any output
 	r, err := age.Decrypt(in, identity)
 	if err != nil {
 		return err
 	}
 
-	// Create output file with restrictive permissions
-	out, err := os.OpenFile(outputPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
-	if err != nil {
+	return writeOutputAtomically(outputPath, func(out io.Writer) error {
+		_, err := io.Copy(out, r)
 		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, r)
-	return err
+	})
 }
