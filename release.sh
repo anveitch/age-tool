@@ -4,8 +4,8 @@
 #
 # This script:
 #   1. Prompts for a version number and release notes
-#   2. Runs pre-flight checks (tools, auth, branch, clean trees, tag unused)
-#      before anything is modified
+#   2. Runs pre-flight checks (tools, auth, branch, clean trees, govulncheck
+#      known-vulnerability scan, tag unused) before anything is modified
 #   3. Updates the appVersion constant in main.go
 #   4. Builds all platform binaries via build.sh (reverts main.go on failure)
 #   5. Calculates SHA256 hashes for macOS binaries
@@ -87,6 +87,8 @@ step "Pre-flight Checks"
 # Required tools
 command -v gh >/dev/null 2>&1 || die "GitHub CLI (gh) is not installed. Install it from https://cli.github.com/"
 command -v go >/dev/null 2>&1 || die "Go is not installed."
+command -v govulncheck >/dev/null 2>&1 \
+  || die "govulncheck is not installed. Install it with: go install golang.org/x/vuln/cmd/govulncheck@latest"
 gh auth status >/dev/null 2>&1 || die "Not authenticated with GitHub CLI. Run 'gh auth login' first."
 
 # Required files
@@ -107,6 +109,24 @@ require_not_behind "." "age-tool repo"
 # Homebrew tap repo must be clean and not behind origin
 require_clean_tree "$FORMULA_REPO_DIR" "Homebrew tap repo"
 require_not_behind "$FORMULA_REPO_DIR" "Homebrew tap repo"
+
+# Known-vulnerability scan. The release is blocked on ANY finding — including
+# vulnerabilities in the Go standard library or dependencies that our code
+# doesn't call — because that code is still compiled into the shipped
+# binaries. govulncheck's exit code only reflects vulnerabilities our code
+# calls, so findings are counted from its JSON output instead.
+echo "Running govulncheck (this may take a moment)..."
+if ! VULN_JSON=$(govulncheck -format json ./... 2>&1); then
+  echo "$VULN_JSON" >&2
+  die "govulncheck failed to run."
+fi
+VULN_COUNT=$(echo "$VULN_JSON" | grep -c '"finding"' || true)
+if [ "$VULN_COUNT" -gt 0 ]; then
+  echo
+  govulncheck -show verbose ./... || true
+  die "govulncheck reported ${VULN_COUNT} finding(s). Update Go and/or dependencies (go get -u ./... && go mod tidy) and re-run."
+fi
+echo "govulncheck: no known vulnerabilities."
 
 # The tag must not already exist locally, on the remote, or as a release
 git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null \
