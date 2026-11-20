@@ -35,18 +35,25 @@ These can come after 2.0:
 
 Move all encryption, key, nickname and audit-log logic out of `main.go` into a package with no terminal input or output. The CLI becomes a thin layer that calls it. **Users see no change.**
 
-- [ ] Create `internal/core` with clear functions, for example:
-  - `EncryptFile`, `DecryptFile`
-  - `GenerateKeyPair`, `UnlockIdentity`, `ProtectPrivateKey`
-  - `ListKeys`, `DeleteKeyPair`
-  - nickname load and save
-  - audit-log entries
-- [ ] Core functions return errors and never print or exit. Prompts, retries and messages stay in the CLI.
-- [ ] Move `cmd/age-tool` (or keep the root `main.go`) to a CLI that only handles prompts and menus.
-- [ ] Move the existing unit tests to cover the core package. Add tests for anything that loses coverage in the move.
-- [ ] Re-run the end-to-end session test (generate, encrypt, wrong then right passphrase, decrypt) and the Ctrl+C test against the new CLI.
+- [x] Create `internal/core`, split by area:
+  - `validate.go`: limits, input and passphrase rules
+  - `keys.go`: list, generate, protect, unlock and delete keys
+  - `files.go`: atomic encrypt and decrypt, partial-file tracking, leftover detection
+  - `nicknames.go`
+  - `audit.go`
+- [x] Core functions return errors and never print or exit. Audit-log problems come back as warnings. Prompts, retries and messages stay in the CLI.
+- [x] Key, nickname and log locations are passed in as parameters, not assumed. The CLI passes the current folder, so Milestone 2 only has to change those values.
+- [x] Root `main.go` kept as the CLI (menus and prompts only), so `build.sh` and `release.sh` are unchanged. The GUI will live in `cmd/age-tool-gui`.
+- [x] Tests moved to `internal/core` (20 tests), plus CLI tests for the prompt helpers (3 tests).
+- [x] Re-ran the end-to-end, Ctrl+C and closed-input tests against the new CLI.
 
 **Done when:** all tests pass, the CLI behaves exactly as in 1.2.2, `gosec` and `govulncheck` are clean, and the CLI still builds static for all five targets.
+
+**Result:** complete. A scripted session run through both v1.2.2 and the new CLI gave an identical 338-line transcript, identical resulting files and permissions, and an identical audit log and receipts. The session covered every startup warning and the main paths, including error and cancel cases. Small differences that don't show up in normal use:
+
+- *Encrypt a Private Key* now also tightens an existing loose `.priv` file to `0600` when it protects it in place. Previously a `0644` open key stayed `0644` after being protected.
+- A new public key file is created with "fail if it exists", so it can never overwrite an existing file.
+- Rare I/O-failure messages are worded slightly differently, e.g. "Error: could not read key file" instead of "Error reading key file."
 
 ## Milestone 2: Key store and standard locations
 
@@ -149,7 +156,7 @@ Each one needs settling before the milestone it affects.
 
 | Milestone | Status |
 |---|---|
-| 1. Shared core package | Not started |
+| 1. Shared core package | ✅ Complete |
 | 2. Key store and standard locations | Not started |
 | 3. Desktop GUI (Fyne) | Not started |
 | 4. Desktop and file manager integration | Not started |
