@@ -36,7 +36,11 @@ To cross-compile for all supported platforms at once, use the included build scr
 
     ./build.sh
 
-This creates a `builds/` directory containing binaries for every supported target.
+This creates a `builds/` directory containing binaries for every supported target. Release builds are static (CGO disabled), with local file paths trimmed and debug symbols stripped.
+
+To run the test suite:
+
+    go test ./...
 
 ### Platform Support
 
@@ -251,7 +255,9 @@ age-tool includes multiple layers of security hardening to protect your keys and
 ### File Handling
 
 - **File size limits.** Files larger than 2 GB are rejected before processing to prevent handling unexpectedly large files.
-- **Restrictive output permissions.** All output files (encrypted files, decrypted files, key files, log files) are written with owner-only permissions (`0600`).
+- **Restrictive output permissions.** All output files (encrypted files, decrypted files, key files, `keys.json`, log files) are written with owner-only permissions (`0600`).
+- **Atomic output.** Encrypted and decrypted output is written to a hidden temporary file (`.age-tool-partial-*`) and only renamed to its final name once the operation has fully succeeded. A corrupted or truncated `.age` file therefore never leaves partial plaintext behind, and never damages an existing file of the same name.
+- **Interrupt handling.** On Ctrl+C, SIGTERM, or SIGHUP the terminal is restored (so an interrupted passphrase prompt doesn't leave input hidden) and any in-progress partial output file is removed.
 - **Overwrite confirmation.** If an output file already exists, the user is prompted for confirmation before overwriting.
 - **Working directory check.** On startup, the application verifies the current directory is accessible and writable before starting any operation.
 
@@ -265,7 +271,7 @@ age-tool includes multiple layers of security hardening to protect your keys and
 ### Private Key Handling
 
 - **In-memory unlocking.** Passphrase-protected private keys are decrypted and parsed in memory only. No unencrypted private key material is written to disk during key generation, key encryption, or file decryption.
-- **Leftover detection.** Versions up to v1.2.0 wrote a temporary decrypted key file (`.tmpkey-*`) during decryption. On startup, the application still scans for any such files left by a crashed older session and prompts the user to delete them.
+- **Leftover detection.** On startup, the application scans for temporary files left by a session that was killed mid-operation and prompts the user to delete them: partial output files (`.age-tool-partial-*`), and temporary decrypted key files (`.tmpkey-*`) written during decryption by versions up to v1.2.0.
 
 ### Key File Security
 
