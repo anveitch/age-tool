@@ -127,7 +127,8 @@ func checkWorkingDirectory() error {
 	if err := os.WriteFile(probe, []byte{}, 0600); err != nil {
 		return fmt.Errorf("working directory is not writable")
 	}
-	os.Remove(probe)
+	// Best-effort removal: a leftover empty probe file is harmless
+	_ = os.Remove(probe)
 	return nil
 }
 
@@ -140,10 +141,12 @@ func isWeakPassphrase(pass string) string {
 		return ""
 	}
 
-	// Check if all characters are the same
+	// Check if all characters are the same. Compare whole runes (not bytes)
+	// so multi-byte UTF-8 characters are handled correctly.
+	runes := []rune(pass)
 	allSame := true
-	for _, c := range pass[1:] {
-		if byte(c) != pass[0] {
+	for _, c := range runes[1:] {
+		if c != runes[0] {
 			allSame = false
 			break
 		}
@@ -272,12 +275,18 @@ func loadNicknames() map[string]string {
 }
 
 // saveNicknames writes the nickname map to keys.json with readable formatting.
+// The file is owner-only (0600). os.WriteFile only applies permissions when
+// creating a file, so an existing keys.json from an older version (0644) is
+// explicitly tightened as well.
 func saveNicknames(nicks map[string]string) error {
 	data, err := json.MarshalIndent(nicks, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(nicknameFile, append(data, '\n'), 0644)
+	if err := os.WriteFile(nicknameFile, append(data, '\n'), 0600); err != nil {
+		return err
+	}
+	return os.Chmod(nicknameFile, 0600)
 }
 
 // formatKeyName returns "Nickname (filename)" if the file has a nickname,
@@ -835,8 +844,10 @@ func generateKeyPair(reader *bufio.Reader) {
 		return
 	}
 
-	// Write the public key to the .pub file (public keys are not secret)
-	if err := os.WriteFile(pubPath, []byte(identity.Recipient().String()+"\n"), 0644); err != nil {
+	// Write the public key to the .pub file. Public keys are not secret, but
+	// it is written owner-only (0600) like every other output file; copy it
+	// to share it.
+	if err := os.WriteFile(pubPath, []byte(identity.Recipient().String()+"\n"), 0600); err != nil {
 		fmt.Fprintln(os.Stderr, "Error writing public key.")
 		return
 	}
@@ -844,9 +855,12 @@ func generateKeyPair(reader *bufio.Reader) {
 	// Encrypt the private key string with the passphrase and write it
 	// directly to the .priv file — no plaintext key ever touches disk.
 	if err := writeEncryptedPrivateKey(privPath, identity.String(), passphrase); err != nil {
-		// Clean up the .pub file if the .priv file failed to write
-		os.Remove(pubPath)
+		// Clean up the .pub file if the .priv file failed to write, so a
+		// half-created key pair isn't left behind
 		fmt.Fprintln(os.Stderr, "Error writing encrypted private key.")
+		if rmErr := os.Remove(pubPath); rmErr != nil {
+			fmt.Fprintf(os.Stderr, "Could not remove incomplete public key %s; please delete it manually.\n", pubPath)
+		}
 		return
 	}
 
@@ -1124,7 +1138,9 @@ func writeReceiptJSON(txType string, timestamp time.Time, receipt map[string]str
 	// Verify logs directory permissions are not overly permissive
 	if info, err := os.Stat(logsDir); err == nil {
 		if info.Mode().Perm()&0077 != 0 {
-			os.Chmod(logsDir, 0700)
+			if err := os.Chmod(logsDir, 0700); err != nil {
+				fmt.Fprintln(os.Stderr, "Warning: could not restrict logs directory permissions to 0700.")
+			}
 		}
 	}
 
