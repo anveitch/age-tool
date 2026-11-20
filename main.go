@@ -486,13 +486,8 @@ func encrypt(reader *bufio.Reader) {
 	for i, f := range files {
 		fmt.Printf("  %d) %s\n", i+1, f)
 	}
-	// Add a clearly separated "Go Back" option at the end of the list
-	fmt.Println()
-	fmt.Printf("  %d) <- Go Back\n", len(files)+1)
-
-	file := promptSelection(reader, "Select file to encrypt", len(files)+1)
-	// If the user selected the last option, return to the main menu
-	if file == len(files) {
+	file, ok := promptSelectionOrBack(reader, "Select file to encrypt", len(files))
+	if !ok {
 		return
 	}
 	inputPath := files[file]
@@ -522,7 +517,10 @@ func encrypt(reader *bufio.Reader) {
 	for i, f := range pubFiles {
 		fmt.Printf("  %d) %s\n", i+1, formatKeyName(f, nicks))
 	}
-	keyIdx := promptSelection(reader, "Select public key", len(pubFiles))
+	keyIdx, ok := promptSelectionOrBack(reader, "Select public key", len(pubFiles))
+	if !ok {
+		return
+	}
 
 	// Validate the public key file contains a valid AGE public key
 	if err := validatePubKeyFile(pubFiles[keyIdx]); err != nil {
@@ -583,13 +581,8 @@ func decrypt(reader *bufio.Reader) {
 	for i, f := range ageFiles {
 		fmt.Printf("  %d) %s\n", i+1, f)
 	}
-	// Add a clearly separated "Go Back" option at the end of the list
-	fmt.Println()
-	fmt.Printf("  %d) <- Go Back\n", len(ageFiles)+1)
-
-	fileIdx := promptSelection(reader, "Select file to decrypt", len(ageFiles)+1)
-	// If the user selected the last option, return to the main menu
-	if fileIdx == len(ageFiles) {
+	fileIdx, ok := promptSelectionOrBack(reader, "Select file to decrypt", len(ageFiles))
+	if !ok {
 		return
 	}
 	inputPath := ageFiles[fileIdx]
@@ -619,7 +612,10 @@ func decrypt(reader *bufio.Reader) {
 	for i, f := range privFiles {
 		fmt.Printf("  %d) %s\n", i+1, formatKeyName(f, nicks))
 	}
-	keyIdx := promptSelection(reader, "Select private key", len(privFiles))
+	keyIdx, ok := promptSelectionOrBack(reader, "Select private key", len(privFiles))
+	if !ok {
+		return
+	}
 	keyPath := privFiles[keyIdx]
 
 	// Validate the private key is a valid AGE-encrypted file
@@ -912,7 +908,10 @@ func encryptPrivateKey(reader *bufio.Reader) {
 	for i, f := range openKeys {
 		fmt.Printf("  %d) %s [OPEN]\n", i+1, formatKeyName(f, nicks))
 	}
-	idx := promptSelection(reader, "Select key to encrypt", len(openKeys))
+	idx, ok := promptSelectionOrBack(reader, "Select key to encrypt", len(openKeys))
+	if !ok {
+		return
+	}
 	keyPath := openKeys[idx]
 
 	// Read the plaintext private key from the file
@@ -999,7 +998,10 @@ func deleteKeyPair(reader *bufio.Reader) {
 		fmt.Printf("  %d) %s (%s)\n", i+1, label, strings.Join(parts, ", "))
 	}
 
-	idx := promptSelection(reader, "Select key pair to delete", len(sorted))
+	idx, ok := promptSelectionOrBack(reader, "Select key pair to delete", len(sorted))
+	if !ok {
+		return
+	}
 	base := sorted[idx]
 
 	// Ask for confirmation before deleting
@@ -1065,7 +1067,10 @@ func nicknameKey(reader *bufio.Reader) {
 		}
 	}
 
-	idx := promptSelection(reader, "Select key to nickname", len(keyFiles))
+	idx, ok := promptSelectionOrBack(reader, "Select key to nickname", len(keyFiles))
+	if !ok {
+		return
+	}
 	selected := keyFiles[idx]
 
 	// Prompt for the new nickname with input sanitisation
@@ -1440,6 +1445,17 @@ func promptSelection(reader *bufio.Reader, prompt string, max int) int {
 		}
 		fmt.Println("Invalid selection, try again.")
 	}
+}
+
+// promptSelectionOrBack prints a clearly separated "<- Go Back" entry after
+// a list of n items (numbered 1..n), then prompts for a choice. Returns the
+// zero-based index of the chosen item and true, or false if the user chose
+// Go Back.
+func promptSelectionOrBack(reader *bufio.Reader, prompt string, n int) (int, bool) {
+	fmt.Println()
+	fmt.Printf("  %d) <- Go Back\n", n+1)
+	idx := promptSelection(reader, prompt, n+1)
+	return idx, idx != n
 }
 
 // readRecipient parses the first age recipient (public key) from a file.
