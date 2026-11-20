@@ -87,13 +87,7 @@ On startup, the application performs a health check and warns you if any unencry
 5. The file is decrypted and the output has the `.age` extension stripped
    - Example: `document.txt.age` becomes `document.txt`
 
-During decryption, the private key is temporarily decrypted to a hidden file (`.tmpkey-<random>`) with owner-only permissions. This file is automatically cleaned up:
-
-- Immediately after the decryption operation completes (success or failure)
-- On normal exit via the Quit menu option
-- On forced exit via Ctrl+C, SIGTERM, or SIGHUP
-
-A global registry and signal handler ensure temporary files are always removed.
+During decryption, the private key is unlocked entirely in memory. The unencrypted private key is never written to disk, and its in-memory copy is zeroed once it has been parsed.
 
 ## Key Management
 
@@ -265,13 +259,12 @@ age-tool includes multiple layers of security hardening to protect your keys and
 - **Minimum length enforced.** Passphrases must be at least 12 characters when creating or encrypting keys.
 - **Weak passphrase detection.** Passphrases using all the same character, only digits, or common patterns are flagged with a warning.
 - **Attempt limit.** During decryption, a maximum of 3 passphrase attempts are allowed before returning to the main menu.
-- **Memory clearing.** Passphrase byte arrays are zeroed after use to reduce the window of exposure in memory.
+- **Memory clearing.** Passphrase byte arrays and the decrypted private key text are zeroed after use to reduce the window of exposure in memory.
 
-### Temporary File Security
+### Private Key Handling
 
-- **Restrictive permissions.** Temporary decrypted key files are created with owner-only permissions (`0600`).
-- **Automatic cleanup.** Temporary files are removed immediately after use, on normal exit, and on forced exit via Ctrl+C, SIGTERM, or SIGHUP. A global registry and signal handler ensure cleanup regardless of how the application exits.
-- **Leftover detection.** On startup, the application scans for any `.tmpkey-*` files left from a previous crashed session and prompts the user to delete them.
+- **In-memory unlocking.** Passphrase-protected private keys are decrypted and parsed in memory only. No unencrypted private key material is written to disk during key generation, key encryption, or file decryption.
+- **Leftover detection.** Versions up to v1.2.0 wrote a temporary decrypted key file (`.tmpkey-*`) during decryption. On startup, the application still scans for any such files left by a crashed older session and prompts the user to delete them.
 
 ### Key File Security
 

@@ -7,19 +7,17 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/md5"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 	"unicode"
@@ -46,46 +44,14 @@ const (
 	maxFileSize      = 2 * 1024 * 1024 * 1024 // 2 GB maximum file size for processing
 	minPassphraseLen = 12                // Minimum passphrase length for key encryption
 	maxPassAttempts  = 3                 // Maximum passphrase attempts before returning to menu
-	tmpFilePrefix    = ".tmpkey-"        // Prefix for temporary decrypted key files
+	tmpFilePrefix    = ".tmpkey-"        // Prefix of temp key files written by v1.2.0 and earlier (detected and offered for deletion at startup)
+	maxKeyFileSize   = 64 * 1024         // Upper bound when reading a decrypted private key into memory
 )
 
-// tempFileRegistry tracks temporary decrypted key files so they can be
-// cleaned up on exit (normal return, defer, or signal). Access is
-// synchronised because the signal handler runs in a separate goroutine.
-var (
-	tempFiles   []string
-	tempFilesMu sync.Mutex
-)
-
-// registerTempFile adds a path to the global cleanup registry.
-func registerTempFile(path string) {
-	tempFilesMu.Lock()
-	defer tempFilesMu.Unlock()
-	tempFiles = append(tempFiles, path)
-}
-
-// unregisterTempFile removes a path from the registry (called after
-// successful cleanup so we don't try to remove it twice).
-func unregisterTempFile(path string) {
-	tempFilesMu.Lock()
-	defer tempFilesMu.Unlock()
-	for i, p := range tempFiles {
-		if p == path {
-			tempFiles = append(tempFiles[:i], tempFiles[i+1:]...)
-			return
-		}
-	}
-}
-
-// cleanupTempFiles removes every file still in the registry.
-func cleanupTempFiles() {
-	tempFilesMu.Lock()
-	defer tempFilesMu.Unlock()
-	for _, p := range tempFiles {
-		os.Remove(p)
-	}
-	tempFiles = nil
-}
+// errWrongPassphrase is returned by decryptKeyIdentity when the passphrase
+// does not unlock the key, so the caller can offer another attempt. Any
+// other error means the key file itself is unusable and retrying won't help.
+var errWrongPassphrase = errors.New("incorrect passphrase")
 
 // ─── Input Validation ───────────────────────────────────────────────────────
 
@@ -332,19 +298,6 @@ func main() {
 		return
 	}
 
-	// Defer cleanup as a secondary safety net for normal exit paths
-	defer cleanupTempFiles()
-
-	// Set up a signal handler to catch Ctrl+C (SIGINT), SIGTERM, and SIGHUP
-	// so that temporary key files are always removed before the process exits.
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
-	go func() {
-		<-sigChan
-		cleanupTempFiles()
-		os.Exit(1)
-	}()
-
 	// Verify the working directory is accessible and writable before starting
 	if err := checkWorkingDirectory(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -355,7 +308,8 @@ func main() {
 
 	fmt.Printf("age-tool v%s: file encryption/decryption\n", appVersion)
 
-	// Startup check: clean up any leftover temp files from a previous crash
+	// Startup check: clean up any leftover temp key files written by an
+	// older version (v1.2.0 and earlier) that crashed mid-decryption
 	cleanupLeftoverTempFiles(reader)
 
 	// Startup health check: warn the user about any unencrypted .priv files
@@ -667,8 +621,9 @@ func decrypt(reader *bufio.Reader) {
 		return
 	}
 
-	// Prompt the user for the passphrase with limited attempts
-	var tmpKeyPath string
+	// Prompt the user for the passphrase with limited attempts. The private
+	// key is unlocked entirely in memory and never written to disk.
+	var identity age.Identity
 	for attempt := 1; attempt <= maxPassAttempts; attempt++ {
 		fmt.Printf("\nEnter passphrase for private key (attempt %d/%d): ", attempt, maxPassAttempts)
 		passBytes, err := term.ReadPassword(int(syscall.Stdin))
@@ -679,8 +634,8 @@ func decrypt(reader *bufio.Reader) {
 		}
 		passphrase := string(passBytes)
 
-		// Attempt to decrypt the key with this passphrase
-		tmpKeyPath, err = decryptKeyToTempFile(keyPath, passphrase)
+		// Attempt to unlock the key in memory with this passphrase
+		identity, err = decryptKeyIdentity(keyPath, passphrase)
 
 		// Clear the passphrase from memory
 		clearBytes(passBytes)
@@ -689,28 +644,19 @@ func decrypt(reader *bufio.Reader) {
 			break
 		}
 
+		// Only a wrong passphrase is worth retrying; any other error means
+		// the key file itself can't be used
+		if !errors.Is(err, errWrongPassphrase) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return
+		}
+
 		if attempt < maxPassAttempts {
 			fmt.Fprintln(os.Stderr, "Incorrect passphrase, try again.")
 		} else {
 			fmt.Fprintln(os.Stderr, "Maximum passphrase attempts exceeded.")
 			return
 		}
-	}
-
-	// Ensure the temp file is cleaned up after this function returns
-	defer removeTempFile(tmpKeyPath)
-
-	// Verify the temp file was actually created and exists
-	if !fileExists(tmpKeyPath) {
-		fmt.Fprintln(os.Stderr, "Error: temporary key file was not created.")
-		return
-	}
-
-	// Parse the temporarily decrypted private key into an age identity
-	identity, err := readIdentity(tmpKeyPath)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "Error parsing decrypted private key.")
-		return
 	}
 
 	// Check if the output file already exists and confirm overwrite
@@ -1393,60 +1339,44 @@ func isAgeEncrypted(path string) (bool, error) {
 	return false, fmt.Errorf("file is empty")
 }
 
-// decryptKeyToTempFile decrypts a passphrase-protected age key file to a
-// temporary hidden file in the current directory. The temp file has a
-// randomised name prefixed with a dot to keep it hidden. The path is
-// registered in the global cleanup registry so it can be removed on
-// signal or abnormal exit.
-func decryptKeyToTempFile(encryptedKeyPath, passphrase string) (string, error) {
+// decryptKeyIdentity unlocks a passphrase-protected age private key file
+// entirely in memory and returns the parsed identity. The plaintext key is
+// never written to disk, and the in-memory copy of the key text is zeroed
+// once parsed (best effort; the Go runtime may hold other copies).
+// Returns errWrongPassphrase if the passphrase does not unlock the key.
+func decryptKeyIdentity(encryptedKeyPath, passphrase string) (age.Identity, error) {
 	in, err := os.Open(filepath.Clean(encryptedKeyPath))
 	if err != nil {
-		return "", fmt.Errorf("cannot open key file")
+		return nil, fmt.Errorf("cannot open key file")
 	}
 	defer in.Close()
 
-	identity, err := age.NewScryptIdentity(passphrase)
+	scryptIdentity, err := age.NewScryptIdentity(passphrase)
 	if err != nil {
-		return "", fmt.Errorf("invalid passphrase")
+		return nil, fmt.Errorf("invalid passphrase")
 	}
 
-	r, err := age.Decrypt(in, identity)
+	// age.Decrypt reads the header and checks the passphrase up front, so a
+	// failure here means the passphrase was wrong (or the header is corrupt)
+	r, err := age.Decrypt(in, scryptIdentity)
 	if err != nil {
-		return "", fmt.Errorf("decryption failed (wrong passphrase?)")
+		return nil, errWrongPassphrase
 	}
 
-	randBytes := make([]byte, 16)
-	if _, err := rand.Read(randBytes); err != nil {
-		return "", fmt.Errorf("internal error")
-	}
-	tmpPath := filepath.Join(".", tmpFilePrefix+hex.EncodeToString(randBytes))
-
-	// Register the temp file for cleanup before writing it
-	registerTempFile(tmpPath)
-
-	// Write the decrypted key to the temp file with restrictive permissions (0600)
-	out, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	// Read the decrypted key text into memory, capped at a sane size
+	keyData, err := io.ReadAll(io.LimitReader(r, maxKeyFileSize))
+	// Zero the plaintext key bytes when this function returns
+	defer clearBytes(keyData)
 	if err != nil {
-		return "", fmt.Errorf("cannot create temporary file")
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, r); err != nil {
-		return "", fmt.Errorf("error writing temporary file")
+		return nil, fmt.Errorf("could not read decrypted private key")
 	}
 
-	return tmpPath, nil
-}
-
-// removeTempFile deletes a temporary file, verifies deletion, and removes
-// it from the global registry.
-func removeTempFile(path string) {
-	os.Remove(path)
-	// Verify the file was actually deleted
-	if fileExists(path) {
-		fmt.Fprintf(os.Stderr, "WARNING: Failed to delete temporary key file. Please delete manually: %s\n", filepath.Base(path))
+	// Parse the AGE-SECRET-KEY line into an identity
+	identities, err := age.ParseIdentities(bytes.NewReader(keyData))
+	if err != nil || len(identities) == 0 {
+		return nil, fmt.Errorf("decrypted file does not contain a valid AGE private key")
 	}
-	unregisterTempFile(path)
+	return identities[0], nil
 }
 
 // listFiles returns the names of all non-directory entries in dir that
@@ -1470,15 +1400,13 @@ func listFiles(dir string, filter func(string) bool) ([]string, error) {
 
 // readLine reads one line of user input. If input has ended (Ctrl+D, a
 // closed pipe, or end of a redirected file) and nothing was read, it
-// cleans up any temporary key files and exits, rather than letting the
-// caller loop forever on empty input. A final line without a trailing
-// newline is still returned; the following call will then exit.
+// exits rather than letting the caller loop forever on empty input.
+// A final line without a trailing newline is still returned; the
+// following call will then exit.
 func readLine(reader *bufio.Reader) string {
 	line, err := reader.ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Println("\nInput closed. Exiting.")
-		// os.Exit skips deferred calls, so clean up temp files explicitly
-		cleanupTempFiles()
 		os.Exit(0)
 	}
 	return line
@@ -1514,24 +1442,6 @@ func readRecipient(path string) (age.Recipient, error) {
 		return nil, fmt.Errorf("no public key found in file")
 	}
 	return recipients[0], nil
-}
-
-// readIdentity parses the first age identity (private key) from a file.
-func readIdentity(path string) (age.Identity, error) {
-	f, err := os.Open(filepath.Clean(path))
-	if err != nil {
-		return nil, fmt.Errorf("cannot open key file")
-	}
-	defer f.Close()
-
-	identities, err := age.ParseIdentities(f)
-	if err != nil {
-		return nil, fmt.Errorf("invalid private key format")
-	}
-	if len(identities) == 0 {
-		return nil, fmt.Errorf("no private key found in file")
-	}
-	return identities[0], nil
 }
 
 // encryptFile encrypts the contents of inputPath to outputPath using
