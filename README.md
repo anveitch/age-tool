@@ -26,7 +26,7 @@ Regardless of installation method, [age](https://github.com/FiloSottile/age) mus
 
 ## Building from Source
 
-Building from source requires [Go](https://go.dev/) 1.21 or later.
+Building from source requires [Go](https://go.dev/) 1.26.11 or later. If you have an older Go (1.21 or later) installed, it will automatically download the required toolchain the first time you build.
 
 To build for your current platform:
 
@@ -46,6 +46,7 @@ This creates a `builds/` directory containing binaries for every supported targe
 | macOS Intel           | `age-tool-macos-intel`      |
 | Windows x64           | `age-tool-windows-x64.exe`  |
 | Linux x64             | `age-tool-linux-x64`        |
+| Linux ARM64           | `age-tool-linux-arm64`      |
 
 The compiled binaries are self-contained and do not require Go to be installed on the target machine. However, if you plan to generate keys manually outside the application, the [age CLI](https://github.com/FiloSottile/age) must be installed on the target system. The built-in key generation feature has no external dependencies.
 
