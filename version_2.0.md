@@ -61,19 +61,29 @@ Replace "everything in the current folder" with standard per-user locations. **T
 
 | Data | Linux | macOS | Windows |
 |---|---|---|---|
-| Keys (`.pub`, `.priv`) | `~/.local/share/age-tool/keys/` | `~/Library/Application Support/age-tool/keys/` | `%AppData%\age-tool\keys\` |
-| Nicknames, settings | `~/.config/age-tool/` | `~/Library/Application Support/age-tool/` | `%AppData%\age-tool\` |
-| Audit log and receipts | `~/.local/state/age-tool/` | `~/Library/Application Support/age-tool/logs/` | `%AppData%\age-tool\logs\` |
+| Keys (`.pub`, `.priv`) and their nicknames (`keys.json`) | `~/.local/share/age-tool/keys/` | `~/Library/Application Support/age-tool/keys/` | `%AppData%\age-tool\keys\` |
+| Settings | `~/.config/age-tool/` | `~/Library/Application Support/age-tool/` | `%AppData%\age-tool\` |
+| Central audit log and receipts | `~/.local/state/age-tool/` | `~/Library/Logs/age-tool/` | `%LocalAppData%\age-tool\logs\` |
 
 On Linux these follow the XDG variables (`$XDG_DATA_HOME`, `$XDG_CONFIG_HOME`, `$XDG_STATE_HOME`) when they are set.
 
+`keys.json` stays beside the keys it names, so a key folder (e.g. on a USB stick used with `--keys`) carries its own nicknames.
+
+**Audit logging (D4: both).** Every transaction is written to two places:
+
+- **Central log**, in the location above, recording full file paths. This is what the GUI's activity view reads.
+- **Local log**, `age-tool.log` and `logs/` in the folder of the file that was encrypted or decrypted (for key creation, the key folder), in the same format as 1.x.
+
+**CLI key location (D2: key store).** The CLI uses the key store by default, from any folder. `--keys <folder>` uses a specific folder instead (`--keys .` gives the 1.x behaviour). The files being encrypted or decrypted still come from the folder age-tool is run in.
+
 - [ ] Key store directory created `0700`, and files inside it `0600`.
 - [ ] **Import public key:** from a `.pub` file, or by pasting an `age1…` string, so users can encrypt for other people (contacts).
-- [ ] **Export / share public key:** copy to the clipboard or save as a file.
-- [ ] **Migration:** detect keys and `keys.json` in the current folder (the 1.x layout) and offer to import them into the key store. Never delete the originals automatically.
-- [ ] CLI uses the key store by default, with an option to use a specific folder instead (see open decision D2).
-- [ ] Startup checks (open private keys, loose permissions, leftover temp files) run against the key store.
-- [ ] Tests for the path logic on each OS, the permissions, import, export and migration.
+- [ ] **Export / share public key:** show the `age1…` string and save a copy as a file. (Clipboard comes with the GUI.)
+- [ ] **Migration:** detect keys and `keys.json` in the current folder (the 1.x layout) and offer to import them into the key store, with a "don't ask again for this folder" option. Never delete the originals automatically.
+- [ ] CLI uses the key store by default, with `--keys <folder>` to override.
+- [ ] Startup checks: open private keys and loose permissions run against the key folder (including the folder's own permissions). Leftover temp files are checked in the current folder, where output is written.
+- [ ] Central and local audit logs.
+- [ ] Tests for the path logic on each OS, the permissions, import, export, migration and both audit logs.
 
 **Done when:** the CLI works from any folder using the key store, and a 1.x user's keys migrate without loss.
 
@@ -146,9 +156,9 @@ Each one needs settling before the milestone it affects.
 | # | Decision | Needed by | Recommendation |
 |---|---|---|---|
 | D1 | GUI toolkit | M3 | **Fyne**: pure Go, single binary, no runtime web engine. Wails was considered, but its WebKitGTK dependency varies across distributions. |
-| D2 | CLI default: key store or current folder | M2 | Key store by default, with an option to use a specific folder for scripting and power users. |
+| D2 | CLI default: key store or current folder | M2 | **Decided:** key store by default, with `--keys <folder>` to override. |
 | D3 | Where Linux GUI builds run | M5 | Docker on the Mac with `fyne-cross`, which keeps everything local. GitHub Actions is the alternative if you'd rather avoid Docker. |
-| D4 | Central audit log vs per-folder log | M2 | Central log in the standard state folder. A GUI user won't think to look in each folder. |
+| D4 | Central audit log vs per-folder log | M2 | **Decided:** both. Every transaction goes to the central log and to the local log beside the file. |
 | D5 | Sign release files | M5 | At least publish a SHA256SUMS file. Optionally sign it (minisign or GPG) so users can verify downloads. |
 | D6 | App icon and name shown in menus | M4 | Needs an icon. The menu name could be "age-tool" or something friendlier such as "Age File Encryption". |
 
@@ -157,7 +167,7 @@ Each one needs settling before the milestone it affects.
 | Milestone | Status |
 |---|---|
 | 1. Shared core package | ✅ Complete |
-| 2. Key store and standard locations | Not started |
+| 2. Key store and standard locations | In progress |
 | 3. Desktop GUI (Fyne) | Not started |
 | 4. Desktop and file manager integration | Not started |
 | 5. Build, packaging and release process | Not started |
