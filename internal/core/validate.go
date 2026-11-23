@@ -45,7 +45,7 @@ const (
 func SanitiseInput(input string) (string, error) {
 	s := strings.TrimSpace(input)
 	if len(s) > MaxInputLength {
-		return "", fmt.Errorf("input exceeds maximum length of %d characters", MaxInputLength)
+		return "", errorOfKind(ErrInvalidName, fmt.Sprintf("input exceeds maximum length of %d characters", MaxInputLength))
 	}
 	return s, nil
 }
@@ -57,16 +57,16 @@ func SanitiseInput(input string) (string, error) {
 //   - no path separators (it must name a file directly inside a directory)
 func ValidateFilename(name string) error {
 	if name == "" {
-		return fmt.Errorf("filename cannot be empty")
+		return errorOfKind(ErrInvalidName, "filename cannot be empty")
 	}
 	if strings.Contains(name, "..") {
-		return fmt.Errorf("path traversal not allowed")
+		return errorOfKind(ErrInvalidName, "path traversal not allowed")
 	}
 	if filepath.IsAbs(name) {
-		return fmt.Errorf("absolute paths not allowed")
+		return errorOfKind(ErrInvalidName, "absolute paths not allowed")
 	}
 	if strings.ContainsAny(name, "/\\") {
-		return fmt.Errorf("path separators not allowed — files must be in the current directory")
+		return errorOfKind(ErrInvalidName, "path separators not allowed — files must be in the current directory")
 	}
 	return nil
 }
@@ -76,10 +76,10 @@ func ValidateFilename(name string) error {
 func CheckFileSize(path string) (int64, error) {
 	info, err := os.Stat(path)
 	if err != nil {
-		return 0, fmt.Errorf("cannot access file")
+		return 0, errorOfKind(ErrFileUnavailable, "cannot access file")
 	}
 	if info.Size() > MaxFileSize {
-		return 0, fmt.Errorf("file exceeds maximum size of 2 GB")
+		return 0, errorOfKind(ErrFileTooLarge, "file exceeds maximum size of 2 GB")
 	}
 	return info.Size(), nil
 }
@@ -96,7 +96,7 @@ func FileExists(path string) bool {
 // protect a private key. Currently that is the minimum length.
 func ValidateNewPassphrase(pass string) error {
 	if len(pass) < MinPassphraseLen {
-		return fmt.Errorf("passphrase must be at least %d characters", MinPassphraseLen)
+		return errorOfKind(ErrPassphraseTooShort, fmt.Sprintf("passphrase must be at least %d characters", MinPassphraseLen))
 	}
 	return nil
 }
@@ -146,6 +146,62 @@ func PassphraseWarning(pass string) string {
 	}
 
 	return ""
+}
+
+// PassphraseStrength rates a new passphrase for a strength meter.
+type PassphraseStrength int
+
+// Passphrase strength levels, weakest first.
+const (
+	StrengthTooShort PassphraseStrength = iota // Below MinPassphraseLen: not allowed
+	StrengthWeak                               // Allowed, but matches a weak pattern (see PassphraseWarning)
+	StrengthFair                               // Allowed, but short or made of few kinds of character
+	StrengthStrong                             // Long, or mixes several kinds of character
+)
+
+// strongPassphraseLen is the length at which a passphrase counts as strong
+// whatever characters it uses: four or five ordinary words reach it.
+const strongPassphraseLen = 20
+
+// RatePassphrase rates a passphrase that will protect a private key. Only
+// StrengthTooShort is refused (by ValidateNewPassphrase); the other levels
+// help the user choose. This is a simple guide, not an entropy estimate.
+func RatePassphrase(pass string) PassphraseStrength {
+	if len(pass) < MinPassphraseLen {
+		return StrengthTooShort
+	}
+	if PassphraseWarning(pass) != "" {
+		return StrengthWeak
+	}
+	if len([]rune(pass)) >= strongPassphraseLen {
+		return StrengthStrong
+	}
+
+	// Count the kinds of character used: lower case, upper case, digits,
+	// and anything else (spaces, punctuation, symbols)
+	var lower, upper, digit, other bool
+	for _, c := range pass {
+		switch {
+		case unicode.IsLower(c):
+			lower = true
+		case unicode.IsUpper(c):
+			upper = true
+		case unicode.IsDigit(c):
+			digit = true
+		default:
+			other = true
+		}
+	}
+	kinds := 0
+	for _, used := range []bool{lower, upper, digit, other} {
+		if used {
+			kinds++
+		}
+	}
+	if kinds >= 3 {
+		return StrengthStrong
+	}
+	return StrengthFair
 }
 
 // ClearBytes overwrites a byte slice with zeros to remove sensitive data

@@ -23,7 +23,7 @@ const maxPubKeyFileSize = 16 * 1024
 // a secret can't be imported as a contact by mistake.
 func ParsePublicKey(text string) (string, error) {
 	if strings.Contains(strings.ToUpper(text), "AGE-SECRET-KEY-") {
-		return "", fmt.Errorf("this is a private key, not a public key — never share or import it as a contact")
+		return "", errorOfKind(ErrIsPrivateKey, "this is a private key, not a public key — never share or import it as a contact")
 	}
 
 	var keys []string
@@ -36,15 +36,15 @@ func ParsePublicKey(text string) (string, error) {
 		keys = append(keys, line)
 	}
 	if len(keys) == 0 {
-		return "", fmt.Errorf("no public key found")
+		return "", errorOfKind(ErrNotPublicKey, "no public key found")
 	}
 	if len(keys) > 1 {
-		return "", fmt.Errorf("expected one public key, found %d lines", len(keys))
+		return "", errorOfKind(ErrNotPublicKey, fmt.Sprintf("expected one public key, found %d lines", len(keys)))
 	}
 
 	recipients, err := age.ParseRecipients(strings.NewReader(keys[0]))
 	if err != nil || len(recipients) != 1 {
-		return "", fmt.Errorf("not a valid age public key (it should start with \"age1\")")
+		return "", errorOfKind(ErrNotPublicKey, "not a valid age public key (it should start with \"age1\")")
 	}
 	return keys[0], nil
 }
@@ -54,7 +54,7 @@ func ParsePublicKey(text string) (string, error) {
 func ReadPublicKeyString(path string) (string, error) {
 	data, err := readLimited(path, maxPubKeyFileSize)
 	if err != nil {
-		return "", fmt.Errorf("could not read %s", filepath.Base(path))
+		return "", errorOfKind(ErrFileUnavailable, fmt.Sprintf("could not read %s", filepath.Base(path)))
 	}
 	return ParsePublicKey(string(data))
 }

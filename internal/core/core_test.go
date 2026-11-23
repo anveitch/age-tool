@@ -584,3 +584,79 @@ func TestAuditLogWarnings(t *testing.T) {
 		t.Errorf("got %d warnings, want 2: %v", len(warnings), warnings)
 	}
 }
+
+// TestRatePassphrase checks the strength meter levels.
+func TestRatePassphrase(t *testing.T) {
+	cases := []struct {
+		pass string
+		want PassphraseStrength
+	}{
+		{"", StrengthTooShort},
+		{"Sh0rt!", StrengthTooShort},
+		{"111111111111", StrengthWeak},
+		{"aaaaaaaaaaaa", StrengthWeak},
+		{"abcdefghijklmn", StrengthWeak},
+		{"bluehorsesky", StrengthFair},
+		{"BlueHorseSky", StrengthFair},
+		{"BlueHorse5ky", StrengthStrong},
+		{"blue horse sky", StrengthFair},
+		{"correct horse battery staple", StrengthStrong},
+	}
+	for _, c := range cases {
+		if got := RatePassphrase(c.pass); got != c.want {
+			t.Errorf("RatePassphrase(%q) = %d, want %d", c.pass, got, c.want)
+		}
+	}
+}
+
+// TestReadActivity checks ordering, the limit, damaged receipts and a
+// missing folder.
+func TestReadActivity(t *testing.T) {
+	dir := t.TempDir()
+	log := AuditLog{LogFile: filepath.Join(dir, "age-tool.log"), ReceiptsDir: filepath.Join(dir, "receipts"), AbsolutePaths: true}
+
+	// No receipts folder yet: no activity, no error
+	entries, skipped, err := ReadActivity(log.ReceiptsDir, 0)
+	if err != nil || len(entries) != 0 || skipped != 0 {
+		t.Fatalf("empty ReadActivity = %v, %d, %v", entries, skipped, err)
+	}
+
+	src := filepath.Join(dir, "a.txt")
+	if err := os.WriteFile(src, []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t1 := time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)
+	t2 := t1.Add(time.Hour)
+	log.RecordKeyCreation(t1, "me", src, src)
+	log.RecordEncrypt(t2, src, src+".age", "me.pub", "Me")
+	log.RecordDecrypt(t2, src+".age", src, "me.priv", "") // same second as the encrypt
+	// A damaged receipt and an unrelated file
+	if err := os.WriteFile(filepath.Join(log.ReceiptsDir, "broken.json"), []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(log.ReceiptsDir, "notes.txt"), []byte("hi"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, skipped, err = ReadActivity(log.ReceiptsDir, 0)
+	if err != nil || skipped != 1 || len(entries) != 3 {
+		t.Fatalf("ReadActivity = %d entries, %d skipped, %v", len(entries), skipped, err)
+	}
+	if entries[2].Type != ActivityKeyCreation || entries[2].KeyName != "me" {
+		t.Errorf("oldest entry = %+v", entries[2])
+	}
+	if e := entries[0]; e.Type != ActivityEncrypt && e.Type != ActivityDecrypt {
+		t.Errorf("newest entry = %+v", e)
+	}
+	for _, e := range entries[:2] {
+		if e.Type == ActivityEncrypt && (e.Source != src || e.Key != "me.pub" || e.KeyNickname != "Me") {
+			t.Errorf("encrypt entry = %+v", e)
+		}
+	}
+
+	// The limit keeps only the newest
+	entries, _, _ = ReadActivity(log.ReceiptsDir, 1)
+	if len(entries) != 1 || !entries[0].Time.Equal(t2) {
+		t.Errorf("limited ReadActivity = %+v", entries)
+	}
+}

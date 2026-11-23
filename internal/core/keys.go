@@ -183,10 +183,10 @@ func ValidatePubKeyFile(path string) error {
 func ValidatePrivKeyFile(path string) error {
 	encrypted, err := IsAgeEncrypted(path)
 	if err != nil {
-		return fmt.Errorf("cannot read private key file")
+		return errorOfKind(ErrFileUnavailable, "cannot read private key file")
 	}
 	if !encrypted {
-		return fmt.Errorf("private key is not passphrase-encrypted")
+		return errorOfKind(ErrKeyNotProtected, "private key is not passphrase-encrypted")
 	}
 	return nil
 }
@@ -217,16 +217,16 @@ func FixKeyPermissions(path string) error {
 func ReadRecipient(path string) (age.Recipient, error) {
 	f, err := os.Open(filepath.Clean(path))
 	if err != nil {
-		return nil, fmt.Errorf("cannot open public key file")
+		return nil, errorOfKind(ErrFileUnavailable, "cannot open public key file")
 	}
 	defer f.Close()
 
 	recipients, err := age.ParseRecipients(f)
 	if err != nil {
-		return nil, fmt.Errorf("file does not contain a valid AGE public key")
+		return nil, errorOfKind(ErrNotPublicKey, "file does not contain a valid AGE public key")
 	}
 	if len(recipients) == 0 {
-		return nil, fmt.Errorf("no AGE public key found in file")
+		return nil, errorOfKind(ErrNotPublicKey, "no AGE public key found in file")
 	}
 	return recipients[0], nil
 }
@@ -239,7 +239,7 @@ func ReadRecipient(path string) (age.Recipient, error) {
 func UnlockIdentity(encryptedKeyPath, passphrase string) (age.Identity, error) {
 	in, err := os.Open(filepath.Clean(encryptedKeyPath))
 	if err != nil {
-		return nil, fmt.Errorf("cannot open key file")
+		return nil, errorOfKind(ErrFileUnavailable, "cannot open key file")
 	}
 	defer in.Close()
 

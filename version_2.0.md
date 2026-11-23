@@ -125,6 +125,23 @@ A separate `age-tool-gui` binary built with [Fyne](https://fyne.io), calling the
 
 **Done when:** a non-technical tester can complete generate → encrypt → decrypt on Ubuntu without help.
 
+**Progress: groundwork done (no Fyne needed).** Fyne needs a working C toolchain, and the Mac's was waiting on an Xcode update, so everything the screens call was built first in `internal/app`, with no toolkit code:
+
+- **Workflows:**
+  - `Encrypt`, plus `StartDecrypt` → `Try`, which checks the file, key and output before the passphrase is asked for and enforces the 3 attempts itself.
+  - `GenerateKey`, `ProtectKey`, `ImportContact`, `ImportContactFile`, `PublicKeyText`, `ExportPublicKey`, `SetNickname`, `DeleteKey`.
+  - `Keys` / `Recipients` / `Identities` for the pickers, and `Activity` for the activity view.
+
+  They log to the central and local audit logs as the CLI does. Passphrases are passed in as byte slices and zeroed before each call returns.
+- **Plain-language messages:** `Message(err)`. Core errors now carry kinds (`core.ErrInvalidName`, `ErrPassphraseTooShort`, `ErrKeyNotProtected`, …) that can be tested with `errors.Is`, while keeping their exact text, so CLI output is unchanged. Unknown errors get a general message, never Go error text.
+- **Passphrase strength:** `core.RatePassphrase`, with labels for the meter.
+- **Activity reader:** `core.ReadActivity` reads the central receipts newest first, skipping damaged ones.
+- **Command line:** `ParseLaunch` handles `encrypt|decrypt <file>...`, plus bare files (decrypt `.age` files, encrypt others) for double-click.
+
+Tests rose from 36 to 44 (33 core, 6 app, 5 CLI). gosec and govulncheck are clean, and the CLI still builds static for all five targets.
+
+**Next:** the Fyne screens in `cmd/age-tool-gui`, once CGO linking works.
+
 ## Milestone 4: Desktop and file manager integration (Linux)
 
 - [ ] `.desktop` launcher entry and an app icon (several sizes).
@@ -183,7 +200,7 @@ Each one needs settling before the milestone it affects.
 |---|---|
 | 1. Shared core package | ✅ Complete |
 | 2. Key store and standard locations | ✅ Complete |
-| 3. Desktop GUI (Fyne) | Not started |
+| 3. Desktop GUI (Fyne) | In progress: groundwork done, screens next |
 | 4. Desktop and file manager integration | Not started |
 | 5. Build, packaging and release process | Not started |
 | 6. Documentation and 2.0.0 release | Not started |
