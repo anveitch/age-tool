@@ -106,22 +106,22 @@ On Linux these follow the XDG variables (`$XDG_DATA_HOME`, `$XDG_CONFIG_HOME`, `
 
 A separate `age-tool-gui` binary built with [Fyne](https://fyne.io), calling the core package.
 
-- [ ] **Home screen** with three clear actions: Encrypt a file, Decrypt a file, My keys.
-- [ ] **Encrypt:**
+- [x] **Home screen** with three clear actions: Encrypt a file, Decrypt a file, My keys.
+- [x] **Encrypt:**
   1. Pick a file (file dialog or drag-and-drop).
   2. Pick who it's for (your keys and imported contacts, shown by nickname).
   3. The output is saved next to the original as `name.age`.
-- [ ] **Decrypt:**
+- [x] **Decrypt:**
   1. Pick a `.age` file.
   2. Choose a private key.
   3. Enter the passphrase (hidden; 3 attempts).
   4. The output is saved next to the `.age` file.
-- [ ] **My keys:** list, generate (with a passphrase strength warning), protect an open key, import, export or share a public key, nickname, delete (with confirmation).
-- [ ] **Overwrite confirmation** dialog, and clear plain-language error messages (no Go error text).
-- [ ] **View activity:** a read-only view of the audit log.
-- [ ] Passphrase fields are cleared after use, and nothing sensitive is kept in the GUI's state.
-- [ ] Command-line arguments (`age-tool-gui encrypt <file>`, `age-tool-gui decrypt <file>`) open straight into that flow. Milestone 4 needs these.
-- [ ] Usability pass: test the screens with someone non-technical before moving on.
+- [x] **My keys:** list, generate (with a passphrase strength warning), protect an open key, import, export or share a public key, nickname, delete (with confirmation).
+- [x] **Overwrite confirmation** dialog, and clear plain-language error messages (no Go error text).
+- [x] **View activity:** a read-only view of the audit log.
+- [x] Passphrase fields are cleared after use, and nothing sensitive is kept in the GUI's state.
+- [x] Command-line arguments (`age-tool-gui encrypt <file>`, `age-tool-gui decrypt <file>`) open straight into that flow. Milestone 4 needs these.
+- [ ] Usability pass: test the screens with someone non-technical before moving on (script: [docs/usability-test.md](docs/usability-test.md)).
 
 **Done when:** a non-technical tester can complete generate → encrypt → decrypt on Ubuntu without help.
 
@@ -140,7 +140,25 @@ A separate `age-tool-gui` binary built with [Fyne](https://fyne.io), calling the
 
 Tests rose from 36 to 44 (33 core, 6 app, 5 CLI). gosec and govulncheck are clean, and the CLI still builds static for all five targets.
 
-**Next:** the Fyne screens in `cmd/age-tool-gui`, once CGO linking works.
+**Progress: screens built.** Once Xcode was updated, the Fyne screens were built in `cmd/age-tool-gui` on Fyne v2.8.2, as thin layers over `internal/app`:
+
+- **Home:** Encrypt a file, Decrypt a file, My keys and View activity. Files dropped on the window open the matching workflow.
+- **Encrypt and decrypt:** a file step and a key list (your own keys are marked "(you)"). Overwrite is confirmed per file, and several files from the command line are handled in turn. The passphrase is asked for each file and never kept. Wrong passphrases show the attempts left.
+- **My keys:**
+  - create (with a strength meter), add contact (paste or load a `.pub` file), share (copy or save a copy to a folder), rename, protect and delete (explaining what is lost)
+  - unprotected keys are flagged in red and can't be chosen for decryption
+  - a refused private key is never shown back on screen
+- **Activity:** recent transactions, newest first, from the central log.
+- **Background work:** encrypting and unlocking keys run off the UI thread behind a busy dialog. Closing the window mid-operation asks first and removes the partial output. Interrupt and termination signals do the same.
+- **Startup:** private keys in the key store with loose permissions are tightened silently, since the GUI's users can't be expected to judge this. 1.x key migration stays in the CLI, which has a "current folder" to migrate from.
+- **Tests:** a headless smoke test (Fyne's test driver) builds every screen and dialog with real keys and files, and runs the encrypt flow end to end. Setting `AGE_TOOL_SCREENSHOTS=<folder>` saves a PNG of each screen.
+- **Dependencies:** `golang.org/x/image` is required at v0.48.0, above Fyne's v0.24.0, because the older version has known vulnerabilities and `release.sh` blocks on any finding.
+
+The CLI still builds static with no Fyne code (`go list -deps .` contains none of it).
+
+**Real window checked on macOS.** A screenshot tour (`cmd/age-tool-gui/screenshot_tour.go`, built only with `-tags screenshots`) walks every screen in the real window and saves each one. All 15 render cleanly. The text overlap seen in the headless renders was only a quirk of the test driver. The tour will also supply the user guide's screenshots in Milestone 6.
+
+**Still to do:** the usability pass on Ubuntu, using the script and findings table in [docs/usability-test.md](docs/usability-test.md). This also serves as the Linux check of the real window.
 
 ## Milestone 4: Desktop and file manager integration (Linux)
 
@@ -200,7 +218,7 @@ Each one needs settling before the milestone it affects.
 |---|---|
 | 1. Shared core package | ✅ Complete |
 | 2. Key store and standard locations | ✅ Complete |
-| 3. Desktop GUI (Fyne) | In progress: groundwork done, screens next |
+| 3. Desktop GUI (Fyne) | Built; usability test on Ubuntu pending |
 | 4. Desktop and file manager integration | Not started |
 | 5. Build, packaging and release process | Not started |
 | 6. Documentation and 2.0.0 release | Not started |

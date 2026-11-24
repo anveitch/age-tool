@@ -22,7 +22,7 @@ const maxPubKeyFileSize = 16 * 1024
 // written by age-keygen) are ignored. Private keys are refused outright so
 // a secret can't be imported as a contact by mistake.
 func ParsePublicKey(text string) (string, error) {
-	if strings.Contains(strings.ToUpper(text), "AGE-SECRET-KEY-") {
+	if ContainsSecretKey(text) {
 		return "", errorOfKind(ErrIsPrivateKey, "this is a private key, not a public key — never share or import it as a contact")
 	}
 
@@ -47,6 +47,12 @@ func ParsePublicKey(text string) (string, error) {
 		return "", errorOfKind(ErrNotPublicKey, "not a valid age public key (it should start with \"age1\")")
 	}
 	return keys[0], nil
+}
+
+// ContainsSecretKey reports whether text contains an age private key, so a
+// front end can avoid echoing it back (e.g. when an import is refused).
+func ContainsSecretKey(text string) bool {
+	return strings.Contains(strings.ToUpper(text), "AGE-SECRET-KEY-")
 }
 
 // ReadPublicKeyString reads a .pub file and returns its age public key,
