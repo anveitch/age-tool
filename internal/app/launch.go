@@ -15,11 +15,13 @@ type Action int
 
 // Screens the GUI can be launched into.
 const (
-	ActionHome    Action = iota // The home screen
-	ActionEncrypt               // Encrypt the given files
-	ActionDecrypt               // Decrypt the given files
-	ActionHelp                  // Print usage and exit
-	ActionVersion               // Print the version and exit
+	ActionHome           Action = iota // The home screen
+	ActionEncrypt                      // Encrypt the given files
+	ActionDecrypt                      // Decrypt the given files
+	ActionHelp                         // Print usage and exit
+	ActionVersion                      // Print the version and exit
+	ActionInstallDesktop               // Install the Linux desktop integration and exit
+	ActionRemoveDesktop                // Remove the Linux desktop integration and exit
 )
 
 // Launch is what the GUI was asked to do on the command line.
@@ -37,6 +39,7 @@ type Launch struct {
 //	age-tool-gui <file>...            decrypt .age files, encrypt others
 //	                                  (double-clicking a .age file)
 //	age-tool-gui --help | --version
+//	age-tool-gui --install-desktop | --remove-desktop   (Linux menus)
 //
 // File managers can pass several selected files at once. With bare files
 // they must be all .age files or all other files, so it's clear which
@@ -49,6 +52,10 @@ func ParseLaunch(args []string) (Launch, error) {
 			return Launch{Action: ActionHelp}, nil
 		case "--version", "-version":
 			return Launch{Action: ActionVersion}, nil
+		case "--install-desktop":
+			return Launch{Action: ActionInstallDesktop}, nil
+		case "--remove-desktop":
+			return Launch{Action: ActionRemoveDesktop}, nil
 		case "--":
 			args = args[1:]
 		default:
@@ -101,6 +108,9 @@ const Usage = `Usage:
   age-tool-gui encrypt <file>...   Encrypt files
   age-tool-gui decrypt <file>...   Decrypt .age files
   age-tool-gui <file>...           Decrypt .age files, or encrypt other files
+  age-tool-gui --install-desktop   Add age-tool to the Linux app menu and
+                                   right-click menus (for this user only)
+  age-tool-gui --remove-desktop    Remove them again
   age-tool-gui --version           Show the version
   age-tool-gui --help              Show this help
 `

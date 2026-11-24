@@ -220,6 +220,11 @@ func TestScreens(t *testing.T) {
 	closeDialogs(g)
 	g.showActivity()
 	capture(t, g, "12-activity")
+
+	// Only reads the integration status; nothing is installed
+	closeDialogs(g)
+	g.showIntegration()
+	capture(t, g, "13-integration")
 }
 
 // TestDroppedFilesChooseWorkflow checks that dropping files opens the

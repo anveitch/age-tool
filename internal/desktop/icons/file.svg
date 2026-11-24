@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Icon for .age encrypted files (placeholder): a grey document with a padlock -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Document with a folded corner -->
+  <path d="M56 20 H160 L208 68 V224 A12 12 0 0 1 196 236 H56 A12 12 0 0 1 44 224 V32 A12 12 0 0 1 56 20 Z" fill="#5b6472"/>
+  <path d="M160 20 V56 A12 12 0 0 0 172 68 H208 Z" fill="#a3abb7"/>
+  <!-- Padlock -->
+  <path d="M100 136 V114 A28 28 0 0 1 156 114 V136" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+  <rect x="84" y="132" width="88" height="68" rx="12" fill="#ffb347"/>
+  <circle cx="128" cy="160" r="9" fill="#5b6472"/>
+  <rect x="123" y="164" width="10" height="20" rx="4" fill="#5b6472"/>
+  <!-- "age" label -->
+  <text x="128" y="226" font-family="sans-serif" font-size="28" font-weight="bold" fill="#ffffff" text-anchor="middle">.age</text>
+</svg>

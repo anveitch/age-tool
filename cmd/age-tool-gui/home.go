@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"age-tool/internal/core"
@@ -40,6 +41,13 @@ func (g *gui) showHome() {
 	)
 	activity := widget.NewButtonWithIcon("View activity", theme.HistoryIcon(), g.showActivity)
 	activity.Importance = widget.LowImportance
+	extras := container.NewHBox(activity)
+	// The desktop integration (menus, right-click entries) is Linux only
+	if runtime.GOOS == "linux" {
+		integrate := widget.NewButtonWithIcon("Desktop integration", theme.SettingsIcon(), g.showIntegration)
+		integrate.Importance = widget.LowImportance
+		extras.Add(integrate)
+	}
 	hint := widget.NewLabelWithStyle("Tip: you can also drop files onto this window.",
 		fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
 
@@ -48,7 +56,7 @@ func (g *gui) showHome() {
 		layoutSpacer(),
 		actions,
 		layoutSpacer(),
-		container.NewCenter(activity),
+		container.NewCenter(extras),
 		hint,
 	))
 }

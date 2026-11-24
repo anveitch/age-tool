@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- age-tool app icon (placeholder): a document with a padlock -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Document with a folded corner -->
+  <path d="M56 20 H160 L208 68 V224 A12 12 0 0 1 196 236 H56 A12 12 0 0 1 44 224 V32 A12 12 0 0 1 56 20 Z" fill="#2f6fde"/>
+  <path d="M160 20 V56 A12 12 0 0 0 172 68 H208 Z" fill="#8fb3f2"/>
+  <!-- Text lines -->
+  <rect x="72" y="60" width="64" height="10" rx="5" fill="#ffffff" opacity="0.55"/>
+  <rect x="72" y="84" width="104" height="10" rx="5" fill="#ffffff" opacity="0.55"/>
+  <!-- Padlock -->
+  <path d="M100 150 V128 A28 28 0 0 1 156 128 V150" fill="none" stroke="#ffffff" stroke-width="14" stroke-linecap="round"/>
+  <rect x="84" y="146" width="88" height="68" rx="12" fill="#ffb347"/>
+  <circle cx="128" cy="174" r="9" fill="#2f6fde"/>
+  <rect x="123" y="178" width="10" height="20" rx="4" fill="#2f6fde"/>
+</svg>

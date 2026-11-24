@@ -16,6 +16,7 @@ import (
 
 	"age-tool/internal/app"
 	"age-tool/internal/core"
+	"age-tool/internal/desktop"
 
 	"fyne.io/fyne/v2"
 	fyneapp "fyne.io/fyne/v2/app"
@@ -27,9 +28,6 @@ import (
 
 // appVersion is printed by --version.
 const appVersion = "2.0.0-dev"
-
-// appID identifies the app to the desktop (settings, notifications).
-const appID = "io.github.anveitch.age-tool"
 
 // gui holds the window and the shared workflow service. Nothing secret is
 // stored here.
@@ -56,9 +54,12 @@ func main() {
 	case app.ActionVersion:
 		fmt.Printf("age-tool-gui %s\n", appVersion)
 		return
+	case app.ActionInstallDesktop, app.ActionRemoveDesktop:
+		os.Exit(desktopCommand(launch.Action == app.ActionInstallDesktop))
 	}
 
-	g := &gui{fy: fyneapp.NewWithID(appID)}
+	g := &gui{fy: fyneapp.NewWithID(desktop.AppID)}
+	g.fy.SetIcon(fyne.NewStaticResource(desktop.AppID+".svg", desktop.AppIcon()))
 	g.win = g.fy.NewWindow("age-tool")
 	g.win.Resize(fyne.NewSize(620, 520))
 

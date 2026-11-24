@@ -162,17 +162,42 @@ The CLI still builds static with no Fyne code (`go list -deps .` contains none o
 
 ## Milestone 4: Desktop and file manager integration (Linux)
 
-- [ ] `.desktop` launcher entry and an app icon (several sizes).
-- [ ] MIME type for `.age` files, so double-clicking one opens the decrypt flow.
-- [ ] Right-click menu entries for:
+- [x] `.desktop` launcher entry and an app icon (several sizes).
+- [x] MIME type for `.age` files, so double-clicking one opens the decrypt flow.
+- [x] Right-click menu entries for:
   - **Nautilus** (GNOME, Ubuntu)
   - **Dolphin** (KDE)
   - **Nemo** (Linux Mint / Cinnamon)
   - **Thunar** (XFCE)
-- [ ] A built-in **Install / Remove desktop integration** option, per user and needing no root.
-- [ ] Test on Ubuntu LTS (GNOME), Kubuntu or Fedora KDE, Linux Mint (Cinnamon), and Xubuntu (XFCE).
+- [x] A built-in **Install / Remove desktop integration** option, per user and needing no root.
+- [ ] Test on Ubuntu LTS (checklist: [docs/desktop-integration-test.md](docs/desktop-integration-test.md)) (GNOME), Kubuntu or Fedora KDE, Linux Mint (Cinnamon), and Xubuntu (XFCE).
 
 **Done when:** right-click Encrypt/Decrypt and double-click-to-decrypt work on all four desktops.
+
+**Progress: built and checked against the Linux tools.** `internal/desktop` (plain Go, no toolkit code) installs everything per user under the XDG folders:
+
+- **Launcher and icons:** `io.github.anveitch.age-tool.desktop`, plus placeholder SVG icons for the app and for `.age` files.
+- **File type:** `application/x-age-encrypted`, recognised by `*.age` or by the `age-encryption.org/v1` header. age-tool is set as its default app in `mimeapps.list`.
+- **Right-click entries:**
+  - Nautilus Scripts entries
+  - Dolphin service menus (Plasma 5 and 6 locations)
+  - Nemo actions
+  - Thunar custom actions, merged into the user's `uca.xml`, or a copy of the system defaults if they have none
+
+Uninstalling removes only age-tool's files and its own entries in the shared files. A user's other Thunar actions, and another default app they chose, are left alone. Inside an AppImage the menus start the AppImage file itself (`$APPIMAGE`). If the program moves, the integration screen shows **Update**. The program path is quoted for each format (desktop Exec rules for launchers and Dolphin, shell quoting for Nautilus, Nemo and Thunar), and paths that can't be written safely are refused.
+
+The app offers it from **Home → Desktop integration** (Linux only), and `age-tool-gui --install-desktop` / `--remove-desktop` do the same from the command line.
+
+**Tests:** 8 new tests. One runs the generated Nautilus script with awkward file names. Another (`AGE_TOOL_LINUX_CHECK=1`) passed in an Ubuntu 24.04 container:
+
+- `desktop-file-validate` accepts the launcher
+- the XML files are well-formed
+- `xdg-mime` recognises `.age` files by name and by content, and reports age-tool as their default app
+- uninstalling removes the type
+
+**Still to do:**
+- Run the checklist on the four desktops. GNOME's Files has no plain right-click extension point without `python3-nautilus`, so its entries live under **Scripts**. The checklist will show whether that's good enough.
+- Settle the final name and icon (D6). The names are constants at the top of `internal/desktop/desktop.go`, and the icons are in `internal/desktop/icons/`.
 
 ## Milestone 5: Build, packaging and release process
 
@@ -219,6 +244,6 @@ Each one needs settling before the milestone it affects.
 | 1. Shared core package | ✅ Complete |
 | 2. Key store and standard locations | ✅ Complete |
 | 3. Desktop GUI (Fyne) | Built; usability test on Ubuntu pending |
-| 4. Desktop and file manager integration | Not started |
+| 4. Desktop and file manager integration | Built; testing on the four desktops pending |
 | 5. Build, packaging and release process | Not started |
 | 6. Documentation and 2.0.0 release | Not started |

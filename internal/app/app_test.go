@@ -432,6 +432,8 @@ func TestParseLaunch(t *testing.T) {
 		{[]string{"--help"}, Launch{Action: ActionHelp}, false},
 		{[]string{"-h"}, Launch{Action: ActionHelp}, false},
 		{[]string{"--version"}, Launch{Action: ActionVersion}, false},
+		{[]string{"--install-desktop"}, Launch{Action: ActionInstallDesktop}, false},
+		{[]string{"--remove-desktop"}, Launch{Action: ActionRemoveDesktop}, false},
 		{[]string{"encrypt", "a.txt", "b.pdf"}, Launch{Action: ActionEncrypt, Files: []string{"a.txt", "b.pdf"}}, false},
 		{[]string{"decrypt", "a.txt.age"}, Launch{Action: ActionDecrypt, Files: []string{"a.txt.age"}}, false},
 		{[]string{"encrypt", "--", "-odd.txt"}, Launch{Action: ActionEncrypt, Files: []string{"-odd.txt"}}, false},
