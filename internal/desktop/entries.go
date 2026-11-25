@@ -173,3 +173,12 @@ func (in Integration) thunarAction(action string) string {
 </action>
 `, AppID, xmlEscape(menuLabel(action)), thunarIDPrefix, action, xmlEscape(shellQuote(in.Exe)), action, xmlEscape(Comment), pattern)
 }
+
+// AppImageEntry is the desktop entry stored inside the AppImage. AppImage
+// tools (and appimaged-style integrators) read it to find the app's name,
+// icon and file types. Its Exec is the bare program name, as the AppImage
+// format requires; the menus age-tool installs itself (Install) use the
+// AppImage's real path instead.
+func AppImageEntry() []byte {
+	return Integration{Exe: ExeName}.launcherEntry()
+}

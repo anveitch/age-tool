@@ -13,6 +13,7 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
+	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
@@ -118,4 +119,58 @@ func (g *gui) integrationResult(title, success string, report desktop.Report, er
 		msg += "\n\nNote:\n• " + strings.Join(report.Warnings, "\n• ")
 	}
 	g.tell(title, msg, g.showIntegration)
+}
+
+// declinedPref stores the program path for which the user chose "Not now"
+// in offerIntegration, so they are only asked once per copy of the app.
+const declinedPref = "desktopIntegrationDeclinedFor"
+
+// offerIntegration runs when the app starts from an AppImage (the download
+// users double-click). If age-tool isn't in the app menu yet, or the menus
+// open a different copy (an older download, or one since moved), it offers
+// to set that up, so users never need the Desktop integration screen or a
+// terminal. Saying "Not now" is remembered for this copy.
+func (g *gui) offerIntegration() {
+	if runtime.GOOS != "linux" || os.Getenv("APPIMAGE") == "" {
+		return
+	}
+	in, err := desktop.Default()
+	if err != nil {
+		return
+	}
+	status := in.Status()
+	prefs := g.fy.Preferences()
+	if status == desktop.Installed || prefs.String(declinedPref) == in.Exe {
+		return
+	}
+
+	title, text, accept := "Add age-tool to your desktop?",
+		"This puts age-tool in your app menu, lets you double-click .age files to decrypt them, "+
+			"and adds Encrypt and Decrypt to the right-click menu of your files.", "Add to desktop"
+	if status == desktop.Outdated {
+		title, text, accept = "Update age-tool's menus?",
+			"age-tool's menu entries open a copy of age-tool in a different place. "+
+				"Update them so they open this copy?", "Update"
+	}
+	text += "\n\nYou can change this later with Desktop integration on the home screen."
+
+	d := dialog.NewConfirm(title, text, func(ok bool) {
+		if !ok {
+			prefs.SetString(declinedPref, in.Exe)
+			return
+		}
+		report, err := in.Install()
+		if err != nil {
+			g.tell("Something went wrong", "age-tool couldn't be added to your desktop.\n\n"+err.Error(), g.showHome)
+			return
+		}
+		msg := "age-tool is now in your app menu. The right-click entries appear the next time the file manager opens a window."
+		if len(report.Warnings) > 0 {
+			msg += "\n\nNote:\n• " + strings.Join(report.Warnings, "\n• ")
+		}
+		g.tell("Added to your desktop", msg, g.showHome)
+	}, g.win)
+	d.SetConfirmText(accept)
+	d.SetDismissText("Not now")
+	d.Show()
 }

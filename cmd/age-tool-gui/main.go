@@ -26,9 +26,6 @@ import (
 	"fyne.io/fyne/v2/widget"
 )
 
-// appVersion is printed by --version.
-const appVersion = "2.0.0-dev"
-
 // gui holds the window and the shared workflow service. Nothing secret is
 // stored here.
 type gui struct {
@@ -52,7 +49,7 @@ func main() {
 		fmt.Print(app.Usage)
 		return
 	case app.ActionVersion:
-		fmt.Printf("age-tool-gui %s\n", appVersion)
+		fmt.Printf("age-tool-gui %s\n", core.Version)
 		return
 	case app.ActionInstallDesktop, app.ActionRemoveDesktop:
 		os.Exit(desktopCommand(launch.Action == app.ActionInstallDesktop))
@@ -97,6 +94,7 @@ func main() {
 		g.showDecrypt(files)
 	default:
 		g.showHome()
+		g.offerIntegration()
 	}
 	if devHook != nil {
 		devHook(g)

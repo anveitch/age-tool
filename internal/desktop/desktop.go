@@ -38,6 +38,7 @@ const (
 	MimeType    = "application/x-age-encrypted" // File type registered for .age files
 	EncryptMenu = "Encrypt with age-tool"       // Right-click menu entries
 	DecryptMenu = "Decrypt with age-tool"
+	ExeName     = "age-tool-gui" // Program name inside the AppImage
 )
 
 // mimeIcon is the icon name for .age files: the MIME type with "/" as "-",

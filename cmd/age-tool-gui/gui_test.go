@@ -7,6 +7,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -248,5 +249,85 @@ func TestDroppedFilesChooseWorkflow(t *testing.T) {
 	g.openDropped([]fyne.URI{plain})
 	if g.win.Content() == home {
 		t.Error("dropping a file didn't open a workflow")
+	}
+}
+
+// TestOfferIntegration checks the AppImage first-run offer on Linux: it
+// appears when the integration is missing, installs it when accepted, and
+// isn't shown again once installed or once declined for this copy.
+func TestOfferIntegration(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("desktop integration is Linux only")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(home, "data"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, "config"))
+	t.Setenv("APPIMAGE", filepath.Join(home, "age-tool.AppImage"))
+
+	// offered reports whether a dialog is showing, and returns its buttons
+	offered := func(g *gui) []*widget.Button {
+		var buttons []*widget.Button
+		for _, o := range g.win.Canvas().Overlays().List() {
+			walk(o, func(c fyne.CanvasObject) {
+				if b, ok := c.(*widget.Button); ok {
+					buttons = append(buttons, b)
+				}
+			})
+		}
+		return buttons
+	}
+	tap := func(t *testing.T, buttons []*widget.Button, label string) {
+		t.Helper()
+		for _, b := range buttons {
+			if b.Text == label {
+				test.Tap(b)
+				return
+			}
+		}
+		t.Fatalf("no %q button", label)
+	}
+
+	// Not installed: offered, and accepting installs it
+	g, _ := newTestGUI(t)
+	g.showHome()
+	g.offerIntegration()
+	capture(t, g, "offer-integration")
+	tap(t, offered(g), "Add to desktop")
+	if _, err := os.Stat(filepath.Join(home, "data", "applications", "io.github.anveitch.age-tool.desktop")); err != nil {
+		t.Fatalf("integration not installed: %v", err)
+	}
+	closeDialogs(g)
+
+	// Installed: not offered again
+	g.offerIntegration()
+	if len(offered(g)) != 0 {
+		t.Fatal("offered although already installed")
+	}
+
+	// A different copy: offered as an update; "Not now" is remembered
+	t.Setenv("APPIMAGE", filepath.Join(home, "new", "age-tool.AppImage"))
+	g.offerIntegration()
+	tap(t, offered(g), "Not now")
+	closeDialogs(g)
+	g.offerIntegration()
+	if len(offered(g)) != 0 {
+		t.Fatal("offered again after Not now")
+	}
+}
+
+// walk calls fn for o and every object inside it.
+func walk(o fyne.CanvasObject, fn func(fyne.CanvasObject)) {
+	fn(o)
+	switch c := o.(type) {
+	case *fyne.Container:
+		for _, child := range c.Objects {
+			walk(child, fn)
+		}
+	case fyne.Widget:
+		r := test.WidgetRenderer(c)
+		for _, child := range r.Objects() {
+			walk(child, fn)
+		}
 	}
 }

@@ -26,8 +26,7 @@ import (
 	"golang.org/x/term"
 )
 
-// Application version, printed with --version flag.
-const appVersion = "1.2.2"
+// The version printed by --version is core.Version, shared with the GUI.
 
 // Where the CLI keeps its files, set once at startup by setupLocations.
 var (
@@ -145,7 +144,7 @@ func main() {
 		return
 	}
 	if opts.showVersion {
-		fmt.Printf("age-tool v%s\n", appVersion)
+		fmt.Printf("age-tool v%s\n", core.Version)
 		return
 	}
 
@@ -166,7 +165,7 @@ func main() {
 
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Printf("age-tool v%s: file encryption/decryption\n", appVersion)
+	fmt.Printf("age-tool v%s: file encryption/decryption\n", core.Version)
 	fmt.Printf("Keys: %s\n", keysWhere())
 
 	// Startup check: offer to delete temp files left by a killed session
