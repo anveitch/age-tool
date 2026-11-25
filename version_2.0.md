@@ -232,7 +232,7 @@ Each one needs settling before the milestone it affects.
 |---|---|---|---|
 | D1 | GUI toolkit | M3 | **Fyne**: pure Go, single binary, no runtime web engine. Wails was considered, but its WebKitGTK dependency varies across distributions. |
 | D2 | CLI default: key store or current folder | M2 | **Decided:** key store by default, with `--keys <folder>` to override. |
-| D3 | Where Linux GUI builds run | M5 | Docker on the Mac with `fyne-cross`, which keeps everything local. GitHub Actions is the alternative if you'd rather avoid Docker. |
+| D3 | Where Linux GUI builds run | M5 | **Decided:** Docker on the Mac, using our own build image ([packaging/linux/Dockerfile](packaging/linux/Dockerfile): Ubuntu 22.04, Go with its checksum verified, X11 and Wayland headers) rather than fyne-cross. Binaries need glibc 2.34+ (Ubuntu 22.04, Debian 12, Mint 21, Fedora 35 and later). amd64 builds run under emulation, which takes a few minutes. |
 | D4 | Central audit log vs per-folder log | M2 | **Decided:** both. Every transaction goes to the central log and to the local log beside the file. |
 | D5 | Sign release files | M5 | At least publish a SHA256SUMS file. Optionally sign it (minisign or GPG) so users can verify downloads. |
 | D6 | App icon and name shown in menus | M4 | Needs an icon. The menu name could be "age-tool" or something friendlier such as "Age File Encryption". |
