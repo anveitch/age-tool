@@ -4,17 +4,17 @@ This is a script for a 20–30 minute session with one **non-technical** person 
 
 ## Before the session
 
-1. Copy the Linux build to the Ubuntu machine and make it executable. Use `age-tool-gui-linux-amd64` for ordinary PCs, or `-arm64` for ARM machines. It needs Ubuntu 22.04 or newer.
+1. Copy the AppImage to the Ubuntu machine and make it executable. Use `age-tool-linux-x64.AppImage` for ordinary PCs, or `age-tool-linux-arm64.AppImage` for ARM machines. It needs Ubuntu 22.04 or newer.
 
    ```
-   chmod +x age-tool-gui-linux-amd64 && mv age-tool-gui-linux-amd64 age-tool-gui
+   chmod +x age-tool-linux-x64.AppImage
    ```
 
-   Builds are made on the Mac with Docker (see `packaging/linux/Dockerfile`).
+   Build it on the Mac with `./build.sh` (Docker must be running), or download it from a `2.0.0-rc` pre-release.
 
 2. Use a fresh user account, or move `~/.local/share/age-tool`, `~/.local/state/age-tool` and `~/.config/age-tool` aside, so the tester starts with no keys.
 3. Put a sample file such as `Holiday plans.txt` in the tester's `Documents` folder.
-4. Start the app (`./age-tool-gui`) and leave it on the home screen.
+4. Start the app by double-clicking the AppImage. Choose **Not now** if it offers to add itself to the desktop (that's covered by the desktop integration test), and leave it on the home screen.
 
 ## Running it
 

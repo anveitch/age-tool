@@ -201,26 +201,49 @@ The app offers it from **Home → Desktop integration** (Linux only), and `age-t
 
 ## Milestone 5: Build, packaging and release process
 
-- [ ] Fyne needs CGO, so the GUI is **not** a static build. Linux GUI builds need either Docker on the Mac (`fyne-cross`) or a Linux build machine (see open decision D3).
-- [ ] **AppImage** for Linux x86_64 and arm64: one file the user downloads and double-clicks, which also offers to install the desktop integration from Milestone 4.
-- [ ] `build.sh` builds the CLI (static, as now) and the GUI AppImages.
-- [ ] `release.sh`:
+- [x] Fyne needs CGO, so the GUI is **not** a static build. Linux GUI builds run in Docker on the Mac, in our own build image (D3).
+- [x] **AppImage** for Linux x86_64 and arm64: one file the user downloads and double-clicks, which also offers to install the desktop integration from Milestone 4.
+- [x] `build.sh` builds the CLI (static, as now) and the GUI AppImages.
+- [x] `release.sh`:
   - accept `x.y.z-rc.N` pre-release versions and mark them as GitHub pre-releases
   - upload the AppImages
   - keep the `govulncheck` gate covering the GUI's extra dependencies
   - leave the Homebrew formula on the CLI only
-- [ ] Publish SHA256 checksums for every release file, with an optional signature (see open decision D5).
+- [x] Publish SHA256 checksums for every release file. (The optional signature is D5, still open.)
 
 **Done when:** a single `release.sh` run produces the CLI binaries, the AppImages and the checksums, and an AppImage downloaded from GitHub runs on a clean Ubuntu LTS install.
 
+**Progress:** built. What remains is the first real `release.sh` run (`2.0.0-rc.1`) and running that download on a real Ubuntu PC.
+
+- **One version number.** `internal/core/version.go` holds `Version`, used by both the CLI and the app. `release.sh` rewrites it; between releases it ends in `-dev`.
+- **AppImage.** [packaging/linux/build-gui.sh](packaging/linux/build-gui.sh) builds, in the Docker image:
+  - the program, then the AppDir, laid out by [packaging/linux/appdir](packaging/linux/appdir) from `internal/desktop`, so the AppImage's desktop entry and icon match `--install-desktop`
+  - a zstd SquashFS image with fixed timestamps and root ownership
+  - the official AppImage runtime (type2-runtime release 20251108) joined to the image
+
+  The runtime's GPG signatures were checked against the AppImage project's key, and the Dockerfile pins and verifies their SHA256. No appimagetool is needed. Rebuilding gives a byte-identical AppImage. Sizes: about 12 MB (x64), 11 MB (arm64).
+- **First-run offer.** Started from an AppImage with no integration installed (or with menus pointing at another copy), the app offers **Add to desktop** (or **Update**). "Not now" is remembered per copy. This is tested on Linux.
+- **build.sh** builds the 5 CLI binaries, then both AppImages, then `SHA256SUMS` for everything built. `--cli-only` skips Docker. It now exits with an error if anything failed.
+- **release.sh:**
+  - accepts `x.y.z-rc.N`; pre-releases can be made from any branch (so `v2`), are flagged `--prerelease`, and stop before Homebrew
+  - full releases must be on `master`
+  - checks Docker is running
+  - uploads the AppImages and `SHA256SUMS`, after checking every file is listed and matches
+  - adds a second `govulncheck -scan module` pass, because the source scan on the Mac can't load the Linux-only CGO driver code
+- **Verified:**
+  - Both AppImages on a clean Ubuntu 24.04 container, with only the graphics libraries a desktop has: `--version` through FUSE and with `APPIMAGE_EXTRACT_AND_RUN`, `desktop-file-validate` on the embedded entry, and `--install-desktop` writing `Exec=<AppImage path> %F`.
+  - The x64 AppImage only runs in Docker's x86 emulation on Apple Silicon once its `AI\x02` header marker is cleared. Every AppImage has that marker, and a real PC ignores it, so this is an emulator limit. The x64 build still needs a run on a real PC.
+
 ## Milestone 6: Documentation and 2.0.0 release
 
-- [ ] Restructure the README into a quick start, a GUI guide, a CLI guide and the security section.
-- [ ] A short **user guide for non-technical users** with screenshots: install, make a key, encrypt, decrypt, share your public key.
-- [ ] Upgrade notes for 1.x users covering the key store migration and the new log locations.
+- [x] Restructure the README into a quick start, a GUI guide, a CLI guide and the security section.
+- [x] A short **user guide for non-technical users** with screenshots: install, make a key, encrypt, decrypt, share your public key. ([docs/user-guide.md](docs/user-guide.md))
+- [x] Upgrade notes for 1.x users covering the key store migration and the new log locations. ([docs/upgrading-to-2.0.md](docs/upgrading-to-2.0.md))
 - [ ] Release `2.0.0-rc.1` to a few testers, fix what comes back, then release `2.0.0`.
 
 **Done when:** 2.0.0 is published, and the docs let a new user get from download to first decrypted file on their own.
+
+**Progress:** the docs are written. The screenshots in `docs/images/` come from the real app window on Ubuntu 24.04 (the screenshot tour under Xvfb, with a `/home/sam` home folder). Next: `2.0.0-rc.1` from `v2`, then the testers' fixes, then merge `v2` into `master` and release `2.0.0` from there.
 
 ---
 
@@ -234,7 +257,7 @@ Each one needs settling before the milestone it affects.
 | D2 | CLI default: key store or current folder | M2 | **Decided:** key store by default, with `--keys <folder>` to override. |
 | D3 | Where Linux GUI builds run | M5 | **Decided:** Docker on the Mac, using our own build image ([packaging/linux/Dockerfile](packaging/linux/Dockerfile): Ubuntu 22.04, Go with its checksum verified, X11 and Wayland headers) rather than fyne-cross. Binaries need glibc 2.34+ (Ubuntu 22.04, Debian 12, Mint 21, Fedora 35 and later). amd64 builds run under emulation, which takes a few minutes. |
 | D4 | Central audit log vs per-folder log | M2 | **Decided:** both. Every transaction goes to the central log and to the local log beside the file. |
-| D5 | Sign release files | M5 | At least publish a SHA256SUMS file. Optionally sign it (minisign or GPG) so users can verify downloads. |
+| D5 | Sign release files | M5 | **SHA256SUMS: done**, published with every release. **Signing it: open.** Optional for 2.0. If wanted, minisign is the simplest: one key pair and one extra file (`SHA256SUMS.minisig`). |
 | D6 | App icon and name shown in menus | M4 | **Icon decided:** a padlock carrying a lowercase "a" on a dark slate tile (option C of four compared). `.age` files show a page with that icon as a badge. Both are text-free SVGs in `internal/desktop/icons/`. **Name:** still "age-tool", with "File Encryption" as the generic name, unless a friendlier one is chosen. |
 
 ## Progress
@@ -245,5 +268,5 @@ Each one needs settling before the milestone it affects.
 | 2. Key store and standard locations | ✅ Complete |
 | 3. Desktop GUI (Fyne) | Built; usability test on Ubuntu pending |
 | 4. Desktop and file manager integration | Built; testing on the four desktops pending |
-| 5. Build, packaging and release process | Not started |
-| 6. Documentation and 2.0.0 release | Not started |
+| 5. Build, packaging and release process | Built; first `release.sh` run (2.0.0-rc.1) pending |
+| 6. Documentation and 2.0.0 release | Docs written; rc.1, tester fixes and 2.0.0 pending |
