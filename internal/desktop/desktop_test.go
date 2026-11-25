@@ -375,3 +375,13 @@ func TestWithLinuxTools(t *testing.T) {
 		t.Error(".age files are still recognised after uninstalling")
 	}
 }
+
+// TestLauncherMatchesWindow checks the menu entry names the app window's
+// class (its title, AppName), so desktops show age-tool's icon for the
+// running window rather than a generic one.
+func TestLauncherMatchesWindow(t *testing.T) {
+	entry := string(Integration{Exe: "/opt/age-tool"}.launcherEntry())
+	if !strings.Contains(entry, "\nStartupWMClass="+AppName+"\n") {
+		t.Fatalf("launcher entry lacks StartupWMClass=%s:\n%s", AppName, entry)
+	}
+}

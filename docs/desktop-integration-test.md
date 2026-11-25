@@ -18,7 +18,7 @@ Tick each one per desktop. Record the result as ✅, ❌ (with a note) or n/a.
 | # | Check | GNOME | KDE | Cinnamon | XFCE |
 |---|---|---|---|---|---|
 | 0 | On first start, the AppImage offers **Add to desktop?**. After **Add to desktop** it isn't offered again. (On a second test account: **Not now** is remembered too.) | | | | |
-| 1 | age-tool appears in the app menu with its icon, and opens the home screen. | | | | |
+| 1 | age-tool appears in the app menu with its icon, and opens the home screen. While it's open, the dock / taskbar / top bar / Alt+Tab show **age-tool's padlock icon**, not a generic one. | | | | |
 | 2 | Searching the menu for "encrypt" finds it. | | | | |
 | 3 | Right-click `notes.txt` → **Encrypt with age-tool** opens the encrypt screen with the file chosen. (GNOME: under **Scripts**.) | | | | |
 | 4 | Encrypting works, and `notes.txt.age` appears beside it with the padlock file icon. | | | | |

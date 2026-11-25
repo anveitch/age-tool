@@ -56,8 +56,15 @@ func main() {
 	}
 
 	g := &gui{fy: fyneapp.NewWithID(desktop.AppID)}
-	g.fy.SetIcon(fyne.NewStaticResource(desktop.AppID+".svg", desktop.AppIcon()))
-	g.win = g.fy.NewWindow("age-tool")
+	icon := fyne.NewStaticResource(desktop.AppID+".svg", desktop.AppIcon())
+	g.fy.SetIcon(icon)
+	// The title is also the window's X11 class, which the desktop entry's
+	// StartupWMClass matches so docks and the top bar show age-tool's icon
+	g.win = g.fy.NewWindow(desktop.AppName)
+	// Set the window's own icon too (on X11, the _NET_WM_ICON property that
+	// window lists, docks and Alt+Tab show); the app icon alone isn't
+	// always copied to the window
+	g.win.SetIcon(icon)
 	g.win.Resize(fyne.NewSize(620, 520))
 
 	// Files given on the command line are converted to absolute paths, so

@@ -69,7 +69,11 @@ func menuLabel(action string) string {
 
 // launcherEntry is the app menu entry. Files opened with it (double-click,
 // or "Open With") are passed straight to the program, which decrypts .age
-// files and encrypts anything else.
+// files and encrypts anything else. StartupWMClass links the app's
+// window to this entry: on X11 (and XWayland) the window's class is its
+// title, AppName, and without the link GNOME shows a generic icon in the
+// top bar and dock instead of age-tool's, and doesn't group the window
+// with the launcher.
 func (in Integration) launcherEntry() []byte {
 	return fmt.Appendf(nil, `[Desktop Entry]
 Type=Application
@@ -83,7 +87,8 @@ Categories=Utility;Security;
 Keywords=encrypt;decrypt;age;privacy;security;
 MimeType=%s;
 StartupNotify=true
-`, AppName, GenericName, Comment, desktopExec(in.Exe, "%F"), AppID, MimeType)
+StartupWMClass=%s
+`, AppName, GenericName, Comment, desktopExec(in.Exe, "%F"), AppID, MimeType, AppName)
 }
 
 // mimePackageXML defines the .age file type: by its extension, and by the
