@@ -176,7 +176,7 @@ The CLI still builds static with no Fyne code (`go list -deps .` contains none o
 
 **Progress: built and checked against the Linux tools.** `internal/desktop` (plain Go, no toolkit code) installs everything per user under the XDG folders:
 
-- **Launcher and icons:** `io.github.anveitch.age-tool.desktop`, plus placeholder SVG icons for the app and for `.age` files.
+- **Launcher and icons:** `io.github.anveitch.age-tool.desktop`, plus SVG icons for the app and for `.age` files.
 - **File type:** `application/x-age-encrypted`, recognised by `*.age` or by the `age-encryption.org/v1` header. age-tool is set as its default app in `mimeapps.list`.
 - **Right-click entries:**
   - Nautilus Scripts entries
@@ -197,7 +197,7 @@ The app offers it from **Home → Desktop integration** (Linux only), and `age-t
 
 **Still to do:**
 - Run the checklist on the four desktops. GNOME's Files has no plain right-click extension point without `python3-nautilus`, so its entries live under **Scripts**. The checklist will show whether that's good enough.
-- Settle the final name and icon (D6). The names are constants at the top of `internal/desktop/desktop.go`, and the icons are in `internal/desktop/icons/`.
+- Confirm the menu name (D6). The names are constants at the top of `internal/desktop/desktop.go`.
 
 ## Milestone 5: Build, packaging and release process
 
@@ -235,7 +235,7 @@ Each one needs settling before the milestone it affects.
 | D3 | Where Linux GUI builds run | M5 | **Decided:** Docker on the Mac, using our own build image ([packaging/linux/Dockerfile](packaging/linux/Dockerfile): Ubuntu 22.04, Go with its checksum verified, X11 and Wayland headers) rather than fyne-cross. Binaries need glibc 2.34+ (Ubuntu 22.04, Debian 12, Mint 21, Fedora 35 and later). amd64 builds run under emulation, which takes a few minutes. |
 | D4 | Central audit log vs per-folder log | M2 | **Decided:** both. Every transaction goes to the central log and to the local log beside the file. |
 | D5 | Sign release files | M5 | At least publish a SHA256SUMS file. Optionally sign it (minisign or GPG) so users can verify downloads. |
-| D6 | App icon and name shown in menus | M4 | Needs an icon. The menu name could be "age-tool" or something friendlier such as "Age File Encryption". |
+| D6 | App icon and name shown in menus | M4 | **Icon decided:** a padlock carrying a lowercase "a" on a dark slate tile (option C of four compared). `.age` files show a page with that icon as a badge. Both are text-free SVGs in `internal/desktop/icons/`. **Name:** still "age-tool", with "File Encryption" as the generic name, unless a friendlier one is chosen. |
 
 ## Progress
 
