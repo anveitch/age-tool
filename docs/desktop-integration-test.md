@@ -13,25 +13,26 @@ If the offer doesn't appear, install from the app (Home → Desktop integration 
 
 ## Checks
 
-Tick each one per desktop. Record the result as ✅, ❌ (with a note) or n/a.
+Tick each one per desktop. Record the result as ✅, ❌ (with a note) or n/a. **D** means checked in a Docker desktop rather than a real install (see Findings). Real-machine checks still replace those.
 
 | # | Check | GNOME | KDE | Cinnamon | XFCE |
 |---|---|---|---|---|---|
-| 0 | On first start, the AppImage offers **Add to desktop?**. After **Add to desktop** it isn't offered again. (On a second test account: **Not now** is remembered too.) | | | | |
-| 1 | age-tool appears in the app menu with its icon, and opens the home screen. While it's open, the dock / taskbar / top bar / Alt+Tab show **age-tool's padlock icon**, not a generic one. | | | | |
-| 2 | Searching the menu for "encrypt" finds it. | | | | |
-| 3 | Right-click `notes.txt` → **Encrypt with age-tool** opens the encrypt screen with the file chosen. (GNOME: under **Scripts**.) | | | | |
-| 4 | Encrypting works, and `notes.txt.age` appears beside it with the padlock file icon. | | | | |
-| 5 | Right-click `notes.txt.age` → **Decrypt with age-tool** opens the decrypt screen. | | | | |
-| 6 | **Double-clicking** `notes.txt.age` opens the decrypt screen. | | | | |
-| 7 | The Decrypt entry is **not** offered for `notes.txt`. (GNOME's Scripts menu shows both entries for every file, which is expected.) | | | | |
-| 8 | Selecting 2 files → Encrypt opens one screen for both, and both are encrypted. | | | | |
-| 9 | A file name with spaces and an apostrophe (`Bob's notes.txt`) works for encrypt and decrypt. | | | | |
-| 10 | After moving the AppImage elsewhere and starting it, it offers **Update age-tool's menus?**. Updating makes the menus work again. (Desktop integration on the home screen also says **Update**.) | | | | |
-| 11 | **Remove** takes away the menu entry, the right-click entries and the double-click association. Any existing Thunar custom actions (e.g. "Open Terminal Here") are still there. | | | | |
+| 0 | On first start, the AppImage offers **Add to desktop?**. After **Add to desktop** it isn't offered again. (On a second test account: **Not now** is remembered too.) | | | | ✅ D (Accept only; Not now untested) |
+| 1 | age-tool appears in the app menu with its icon, and opens the home screen. While it's open, the dock / taskbar / top bar / Alt+Tab show **age-tool's padlock icon**, not a generic one. | | | | ✅ D |
+| 2 | Searching the menu for "encrypt" finds it. | | | | ✅ D |
+| 3 | Right-click `notes.txt` → **Encrypt with age-tool** opens the encrypt screen with the file chosen. (GNOME: under **Scripts**.) | | | | ✅ D |
+| 4 | Encrypting works, and `notes.txt.age` appears beside it with the padlock file icon. | | | | ✅ D |
+| 5 | Right-click `notes.txt.age` → **Decrypt with age-tool** opens the decrypt screen. | | | | ✅ D |
+| 6 | **Double-clicking** `notes.txt.age` opens the decrypt screen. | | | | ✅ D |
+| 7 | The Decrypt entry is **not** offered for `notes.txt`. (GNOME's Scripts menu shows both entries for every file, which is expected.) | | | | ✅ D |
+| 8 | Selecting 2 files → Encrypt opens one screen for both, and both are encrypted. | | | | ✅ D |
+| 9 | A file name with spaces and an apostrophe (`Bob's notes.txt`) works for encrypt and decrypt. | | | | ✅ D |
+| 10 | After moving the AppImage elsewhere and starting it, it offers **Update age-tool's menus?**. Updating makes the menus work again. (Desktop integration on the home screen also says **Update**.) | | | | ✅ D |
+| 11 | **Remove** takes away the menu entry, the right-click entries and the double-click association. Any existing Thunar custom actions (e.g. "Open Terminal Here") are still there. | | | | ✅ D |
 
 ## Findings
 
 | Date | Desktop / version | Problems seen | Fix |
 |---|---|---|---|
-| | | | |
+| 2026-11-26 | XFCE 4.18 on Ubuntu 24.04, in Docker on a virtual X screen (Xvfb), with xfwm4, panel and Thunar. The **2.0.0-rc.1 arm64 AppImage** as downloaded from GitHub, run through FUSE. Driven with xdotool, with a screenshot for each step. | All 12 checks passed. The padlock icon shows in the title bar, taskbar, workspace switcher, menu and Application Finder. **Encrypt with age-tool** is also offered for `.age` files, because Thunar's action patterns can't exclude a type. The app refuses to encrypt them twice. If Thunar is already open during install, the `.age` icon and the right-click entries only appear in a new Thunar window, as the app's message says. | None needed. Cosmetic: the Encrypt entry on `.age` files. |
+| 2026-11-26 | Same Docker desktop, first attempt | The menu and Thunar showed a "missing image" icon, because the container lacked GTK's SVG loader (`librsvg2-common`), which every real desktop install has. With it installed, the icons are correct. | Not an app problem. |
