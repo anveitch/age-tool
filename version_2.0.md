@@ -215,6 +215,10 @@ The app offers it from **Home → Desktop integration** (Linux only), and `age-t
 
 **Progress:** built. What remains is the first real `release.sh` run (`2.0.0-rc.1`) and running that download on a real Ubuntu PC.
 
+**Risk accepted (2026-11-26):** the owner chose to release `2.0.0-rc.1` before the Milestone 3 usability test and the Milestone 4 four-desktop checklist have been run on real machines. Those tests now run against the rc download, and the release notes list this as a known limitation. Neither test may be skipped before `2.0.0`.
+
+- **App icon fix (6af069a).** The window's X11 class is its title ("age-tool"), and the menu entry didn't name it, so GNOME would probably have shown a generic icon for the running app. The entry now has `StartupWMClass=age-tool`, and the window title comes from the same constant (verified under Xvfb: `WM_CLASS = "age-tool"`). Fyne didn't set `_NET_WM_ICON` under Xvfb, not even for a minimal program using Fyne's own logo, so the window icon used by XFCE and Cinnamon taskbars is a desktop checklist item (check 1).
+
 - **One version number.** `internal/core/version.go` holds `Version`, used by both the CLI and the app. `release.sh` rewrites it; between releases it ends in `-dev`.
 - **AppImage.** [packaging/linux/build-gui.sh](packaging/linux/build-gui.sh) builds, in the Docker image:
   - the program, then the AppDir, laid out by [packaging/linux/appdir](packaging/linux/appdir) from `internal/desktop`, so the AppImage's desktop entry and icon match `--install-desktop`
@@ -243,7 +247,7 @@ The app offers it from **Home → Desktop integration** (Linux only), and `age-t
 
 **Done when:** 2.0.0 is published, and the docs let a new user get from download to first decrypted file on their own.
 
-**Progress:** the docs are written. The screenshots in `docs/images/` come from the real app window on Ubuntu 24.04 (the screenshot tour under Xvfb, with a `/home/sam` home folder). Next: `2.0.0-rc.1` from `v2`, then the testers' fixes, then merge `v2` into `master` and release `2.0.0` from there.
+**Progress:** the docs are written. Release notes for testers: [docs/releases/2.0.0-rc.1.md](docs/releases/2.0.0-rc.1.md). The screenshots in `docs/images/` come from the real app window on Ubuntu 24.04 (the screenshot tour under Xvfb, with a `/home/sam` home folder). Next: `2.0.0-rc.1` from `v2`, then the testers' fixes, then merge `v2` into `master` and release `2.0.0` from there.
 
 ---
 
@@ -257,8 +261,8 @@ Each one needs settling before the milestone it affects.
 | D2 | CLI default: key store or current folder | M2 | **Decided:** key store by default, with `--keys <folder>` to override. |
 | D3 | Where Linux GUI builds run | M5 | **Decided:** Docker on the Mac, using our own build image ([packaging/linux/Dockerfile](packaging/linux/Dockerfile): Ubuntu 22.04, Go with its checksum verified, X11 and Wayland headers) rather than fyne-cross. Binaries need glibc 2.34+ (Ubuntu 22.04, Debian 12, Mint 21, Fedora 35 and later). amd64 builds run under emulation, which takes a few minutes. |
 | D4 | Central audit log vs per-folder log | M2 | **Decided:** both. Every transaction goes to the central log and to the local log beside the file. |
-| D5 | Sign release files | M5 | **SHA256SUMS: done**, published with every release. **Signing it: open.** Optional for 2.0. If wanted, minisign is the simplest: one key pair and one extra file (`SHA256SUMS.minisig`). |
-| D6 | App icon and name shown in menus | M4 | **Icon decided:** a padlock carrying a lowercase "a" on a dark slate tile (option C of four compared). `.age` files show a page with that icon as a badge. Both are text-free SVGs in `internal/desktop/icons/`. **Name:** still "age-tool", with "File Encryption" as the generic name, unless a friendlier one is chosen. |
+| D5 | Sign release files | M5 | **SHA256SUMS: done**, published with every release. **Signing: not for 2.0** (decided 2026-11-26). If wanted later, minisign is the simplest: one key pair and one extra file (`SHA256SUMS.minisig`). |
+| D6 | App icon and name shown in menus | M4 | **Icon decided:** a padlock carrying a lowercase "a" on a dark slate tile (option C of four compared). `.age` files show a page with that icon as a badge. Both are text-free SVGs in `internal/desktop/icons/`. **Name:** "age-tool", with "File Encryption" as the generic name, for the rc (2026-11-26). It can still change before 2.0.0 if testers find it unclear. |
 
 ## Progress
 
@@ -268,5 +272,5 @@ Each one needs settling before the milestone it affects.
 | 2. Key store and standard locations | ✅ Complete |
 | 3. Desktop GUI (Fyne) | Built; usability test on Ubuntu pending |
 | 4. Desktop and file manager integration | Built; testing on the four desktops pending |
-| 5. Build, packaging and release process | Built; first `release.sh` run (2.0.0-rc.1) pending |
+| 5. Build, packaging and release process | Built; first `release.sh` run (2.0.0-rc.1) pending; Linux testing deferred to the rc (risk accepted) |
 | 6. Documentation and 2.0.0 release | Docs written; rc.1, tester fixes and 2.0.0 pending |
