@@ -319,3 +319,7 @@ The desktop app and the command-line tool share one core package, so they enforc
 ## License
 
 This project is released under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+### Credits
+
+Suggested passwords use the [EFF short word list](https://www.eff.org/dice) by the Electronic Frontier Foundation, licensed [CC BY 3.0 US](https://creativecommons.org/licenses/by/3.0/us/). age-tool includes it with the dice numbers removed and one hyphenated word ("yo-yo") left out.

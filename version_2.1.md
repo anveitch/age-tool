@@ -36,16 +36,16 @@ Milestones are done **in order**. Each one ends with its own tests passing and a
 
 ## Milestone 2: Password encryption in the core
 
-- [ ] **Encrypt with a password**, using age's scrypt recipient and age's default work factor. One password per file; it can't be combined with keys (age forbids it).
-- [ ] **Detect how a file was locked** by reading its header (`-> scrypt` stanza versus key stanzas), without decrypting anything. Files that aren't age files are reported as before.
-- [ ] **Decrypt with a password**, with the same 3 attempts, atomic output and overwrite rules as key decryption.
-- [ ] **Password rule (D1, D2):**
+- [x] **Encrypt with a password**, using age's scrypt recipient and age's default work factor. One password per file; it can't be combined with keys (age forbids it).
+- [x] **Detect how a file was locked** by reading its header (`-> scrypt` stanza versus key stanzas), without decrypting anything. Files that aren't age files are reported as before.
+- [x] **Decrypt with a password**, with the same 3 attempts, atomic output and overwrite rules as key decryption.
+- [x] **Password rule (D1, D2):**
   - at least 8 characters, including a number and a special character
   - rejects known-weak patterns, using the existing weak-passphrase checks
   - configurable in the settings file, but only stricter, never below the floor
-- [ ] **Suggested passwords (D3):** random words joined with `-`, plus a number and a special character, so they always meet the rule. Generated with `crypto/rand`.
-- [ ] **Audit logs:** record the method ("password") instead of a key. The password is never logged.
-- [ ] **Tests:**
+- [x] **Suggested passwords (D3):** random words joined with `-`, plus a number and a special character, so they always meet the rule. Generated with `crypto/rand`.
+- [x] **Audit logs:** record the method ("password") instead of a key. The password is never logged.
+- [x] **Tests:**
   - round trips
   - header detection
   - the rule and its floor
@@ -53,6 +53,21 @@ Milestones are done **in order**. Each one ends with its own tests passing and a
   - **interop with the real `age -p`**, in both directions
 
 **Done when:** core tests pass, including files made and opened by `age -p`.
+
+**Result:** complete. `internal/core/password.go` adds:
+- `FileLockMethod`, which reads only the header
+- `PasswordRules` with `Effective`, `Describe` and `CheckPassword`, plus `Settings.PasswordRules()`
+- `SuggestPassword`
+- `EncryptFileWithPassword` and `DecryptFileWithPassword`, which return `ErrWrongPassword` for a wrong password
+- `RecordPasswordEncrypt` / `RecordPasswordDecrypt` audit records with `"method": "password"`; activity entries now carry `Method`
+
+The weak-password check refuses:
+- a common word with numbers or symbols added (`Summer26!`, `Qwerty123!`)
+- the same with look-alike swaps undone inside the word (`P@ssword1`, `Summ3r2026#`)
+- alphabet or keyboard runs
+- passwords with no letters
+
+9 new tests, including both directions with the real `age` v1.2.1. `age -p` made the fixture `testdata/made-by-age-p.txt.age` (`.gitignore` has an exception for it), and `age -d` opens age-tool's output, with expect typing the password; that test is skipped where age or expect isn't installed. gosec and govulncheck are clean.
 
 ## Milestone 3: Saved password records in the core
 
@@ -138,7 +153,7 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 |---|---|---|
 | D1 | Password rule | **Decided:** at least 8 characters with a number and a special character, rejecting known-weak patterns. The owner accepts the trade-off: 8 characters is weaker against offline guessing than the 12 used for key passphrases. |
 | D2 | Configurable rule | **Decided:** in `settings.json` (`password_rules`: `min_length`, `require_number`, `require_special`). It can only be made stricter; D1 is the floor. Shared by the app and the CLI. No settings screen in 2.1. |
-| D3 | Suggested passwords | **Decided:** offered in the app and the CLI. **Open:** the word list. The EFF short word list (1,296 words, CC BY 3.0, needs attribution) is the likely choice; 4 words plus a number and a symbol. |
+| D3 | Suggested passwords | **Decided:** offered in the app and the CLI. **Word list decided:** the EFF short word list (1,295 words used; CC BY 3.0 US, credited in the README). Suggestions are 4 words plus a two-digit number and a special character, about 51 bits. |
 | D4 | Protecting saved records | **Decided:** age-encrypted to the user's own public keys, opened with a key passphrase. Never stored unprotected. Known limit, shown to users: forgetting the key passphrase loses the records too. |
 | D5 | Saving at run time | **Decided:** the user chooses each time. "Save it, protected by my key" is the default; "Don't save it" shows the password once with Copy and stores nothing. |
 | D6 | Mac app distribution | **Decided:** signed and notarized `.app`, installed by a Homebrew cask. Needs the Apple Developer account. |
@@ -148,8 +163,8 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 | Milestone | Status |
 |---|---|
 | 1. Quit button | ✅ Complete |
-| 2. Password encryption in the core | Next |
-| 3. Saved password records | Not started |
+| 2. Password encryption in the core | ✅ Complete |
+| 3. Saved password records | Next |
 | 4. CLI | Not started |
 | 5. Desktop app | Not started |
 | 6. Docs and 2.1.0 release | Not started |

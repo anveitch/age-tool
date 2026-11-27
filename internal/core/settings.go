@@ -15,6 +15,20 @@ type Settings struct {
 	// MigrationDismissed lists folders (absolute paths) where the user chose
 	// "don't ask again" when offered to import 1.x keys into the key store.
 	MigrationDismissed []string `json:"migration_dismissed,omitempty"`
+
+	// FilePasswordRules, if set, makes the rules for file passwords
+	// stricter than the defaults (see PasswordRules.Effective). It can't
+	// make them weaker.
+	FilePasswordRules *PasswordRules `json:"password_rules,omitempty"`
+}
+
+// PasswordRules returns the rules for file passwords: those in the
+// settings file, never weaker than DefaultPasswordRules.
+func (s Settings) PasswordRules() PasswordRules {
+	if s.FilePasswordRules == nil {
+		return DefaultPasswordRules
+	}
+	return s.FilePasswordRules.Effective()
 }
 
 // LoadSettings reads the settings file at path. A missing or unreadable

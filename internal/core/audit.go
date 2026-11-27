@@ -156,6 +156,45 @@ func (a AuditLog) RecordDecrypt(timestamp time.Time, srcFile, outFile, keyFile, 
 	return append(warnings, a.appendLine(line)...)
 }
 
+// RecordPasswordEncrypt logs an encryption of srcFile to outFile with a
+// password. The receipt records the method ("password") in place of a key;
+// the password itself is never logged. Returns any logging problems as
+// warnings.
+func (a AuditLog) RecordPasswordEncrypt(timestamp time.Time, srcFile, outFile string) []error {
+	return a.recordPasswordTx(ActivityEncrypt, "ENCRYPT", timestamp, srcFile, outFile)
+}
+
+// RecordPasswordDecrypt logs a decryption of srcFile to outFile with a
+// password. As for RecordPasswordEncrypt, the password is never logged.
+func (a AuditLog) RecordPasswordDecrypt(timestamp time.Time, srcFile, outFile string) []error {
+	return a.recordPasswordTx(ActivityDecrypt, "DECRYPT", timestamp, srcFile, outFile)
+}
+
+// recordPasswordTx writes the receipt and log line for a password
+// encryption or decryption (txType "encrypt" or "decrypt").
+func (a AuditLog) recordPasswordTx(txType, label string, timestamp time.Time, srcFile, outFile string) []error {
+	srcMD5, srcSHA256, _ := HashFile(srcFile)
+	outMD5, outSHA256, _ := HashFile(outFile)
+	srcFile, outFile = a.displayPath(srcFile), a.displayPath(outFile)
+
+	warnings := a.writeReceipt(txType, timestamp, map[string]string{
+		"transaction":   txType,
+		"timestamp":     timestamp.Format(time.RFC3339),
+		"method":        MethodPassword,
+		"source_file":   srcFile,
+		"source_md5":    srcMD5,
+		"source_sha256": srcSHA256,
+		"output_file":   outFile,
+		"output_md5":    outMD5,
+		"output_sha256": outSHA256,
+	})
+
+	line := fmt.Sprintf("[%s] %s: %s -> %s | password | src-sha256: %s | out-sha256: %s",
+		timestamp.Format("2006-01-02 15:04:05"), label, srcFile, outFile,
+		ShortHash(srcSHA256), ShortHash(outSHA256))
+	return append(warnings, a.appendLine(line)...)
+}
+
 // RecordKeyCreation logs the creation of key pair keyName (pubFile and
 // privFile). Returns any logging problems as warnings.
 func (a AuditLog) RecordKeyCreation(timestamp time.Time, keyName, pubFile, privFile string) []error {
@@ -284,6 +323,18 @@ func (ls AuditLogs) RecordEncrypt(timestamp time.Time, srcFile, outFile, keyFile
 // RecordDecrypt logs a decryption to every log. See AuditLog.RecordDecrypt.
 func (ls AuditLogs) RecordDecrypt(timestamp time.Time, srcFile, outFile, keyFile, keyNickname string) []error {
 	return ls.each(func(l AuditLog) []error { return l.RecordDecrypt(timestamp, srcFile, outFile, keyFile, keyNickname) })
+}
+
+// RecordPasswordEncrypt logs a password encryption to every log. See
+// AuditLog.RecordPasswordEncrypt.
+func (ls AuditLogs) RecordPasswordEncrypt(timestamp time.Time, srcFile, outFile string) []error {
+	return ls.each(func(l AuditLog) []error { return l.RecordPasswordEncrypt(timestamp, srcFile, outFile) })
+}
+
+// RecordPasswordDecrypt logs a password decryption to every log. See
+// AuditLog.RecordPasswordDecrypt.
+func (ls AuditLogs) RecordPasswordDecrypt(timestamp time.Time, srcFile, outFile string) []error {
+	return ls.each(func(l AuditLog) []error { return l.RecordPasswordDecrypt(timestamp, srcFile, outFile) })
 }
 
 // RecordKeyCreation logs a key creation to every log. See

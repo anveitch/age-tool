@@ -23,11 +23,18 @@ const (
 	ActivityKeyCreation = "key-creation"
 )
 
+// How an encrypt or decrypt transaction was done (ActivityEntry.Method).
+const (
+	MethodKey      = "key"      // With a key (receipts from before 2.1 have no method, and mean this)
+	MethodPassword = "password" // With a password; no key is involved
+)
+
 // ActivityEntry is one transaction read back from an audit log's receipts,
 // for display in an activity view. Which fields are set depends on Type.
 type ActivityEntry struct {
 	Type        string    // ActivityEncrypt, ActivityDecrypt or ActivityKeyCreation
 	Time        time.Time // When the transaction happened
+	Method      string    // Encrypt/decrypt: MethodKey or MethodPassword
 	Source      string    // Encrypt/decrypt: the file that was read
 	Output      string    // Encrypt/decrypt: the file that was written
 	Key         string    // Encrypt/decrypt: the key file used
@@ -41,6 +48,7 @@ type ActivityEntry struct {
 type receipt struct {
 	Transaction    string `json:"transaction"`
 	Timestamp      string `json:"timestamp"`
+	Method         string `json:"method"`
 	SourceFile     string `json:"source_file"`
 	OutputFile     string `json:"output_file"`
 	PublicKey      string `json:"public_key"`
@@ -123,6 +131,12 @@ func readReceipt(path string) (ActivityEntry, bool) {
 	}
 
 	entry := ActivityEntry{Type: r.Transaction, Time: t}
+	if r.Transaction == ActivityEncrypt || r.Transaction == ActivityDecrypt {
+		entry.Method = MethodKey
+		if r.Method == MethodPassword {
+			entry.Method = MethodPassword
+		}
+	}
 	switch r.Transaction {
 	case ActivityEncrypt:
 		entry.Source, entry.Output, entry.Key, entry.KeyNickname = r.SourceFile, r.OutputFile, r.PublicKey, r.KeyNickname

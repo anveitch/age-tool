@@ -39,3 +39,6 @@ keys.json
 age-tool.log
 /logs
 
+
+# Test fixtures made by the real age tool (interop tests)
+!internal/core/testdata/*.age
