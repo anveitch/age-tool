@@ -30,38 +30,44 @@ func TestLocationsPerOS(t *testing.T) {
 		want Locations
 	}{
 		{"linux defaults", "linux", nil, "/home/u", Locations{
-			KeysDir:   "/home/u/.local/share/age-tool/keys",
-			ConfigDir: "/home/u/.config/age-tool",
-			StateDir:  "/home/u/.local/state/age-tool",
+			KeysDir:      "/home/u/.local/share/age-tool/keys",
+			PasswordsDir: "/home/u/.local/share/age-tool/passwords",
+			ConfigDir:    "/home/u/.config/age-tool",
+			StateDir:     "/home/u/.local/state/age-tool",
 		}},
 		{"linux XDG", "linux", map[string]string{
 			"XDG_DATA_HOME": "/data", "XDG_CONFIG_HOME": "/cfg", "XDG_STATE_HOME": "/state",
 		}, "/home/u", Locations{
-			KeysDir:   "/data/age-tool/keys",
-			ConfigDir: "/cfg/age-tool",
-			StateDir:  "/state/age-tool",
+			KeysDir:      "/data/age-tool/keys",
+			PasswordsDir: "/data/age-tool/passwords",
+			ConfigDir:    "/cfg/age-tool",
+			StateDir:     "/state/age-tool",
 		}},
 		{"linux relative XDG ignored", "linux", map[string]string{"XDG_DATA_HOME": "relative/dir"}, "/home/u", Locations{
-			KeysDir:   "/home/u/.local/share/age-tool/keys",
-			ConfigDir: "/home/u/.config/age-tool",
-			StateDir:  "/home/u/.local/state/age-tool",
+			KeysDir:      "/home/u/.local/share/age-tool/keys",
+			PasswordsDir: "/home/u/.local/share/age-tool/passwords",
+			ConfigDir:    "/home/u/.config/age-tool",
+			StateDir:     "/home/u/.local/state/age-tool",
 		}},
 		{"macOS", "darwin", nil, "/Users/u", Locations{
-			KeysDir:   "/Users/u/Library/Application Support/age-tool/keys",
-			ConfigDir: "/Users/u/Library/Application Support/age-tool",
-			StateDir:  "/Users/u/Library/Logs/age-tool",
+			KeysDir:      "/Users/u/Library/Application Support/age-tool/keys",
+			PasswordsDir: "/Users/u/Library/Application Support/age-tool/passwords",
+			ConfigDir:    "/Users/u/Library/Application Support/age-tool",
+			StateDir:     "/Users/u/Library/Logs/age-tool",
 		}},
 		{"windows", "windows", map[string]string{
 			"APPDATA": `C:\Users\u\AppData\Roaming`, "LOCALAPPDATA": `C:\Users\u\AppData\Local`,
 		}, `C:\Users\u`, Locations{
-			KeysDir:   `C:\Users\u\AppData\Roaming\age-tool\keys`,
-			ConfigDir: `C:\Users\u\AppData\Roaming\age-tool`,
-			StateDir:  `C:\Users\u\AppData\Local\age-tool\logs`,
+			KeysDir:      `C:\Users\u\AppData\Roaming\age-tool\keys`,
+			PasswordsDir: `C:\Users\u\AppData\Roaming\age-tool\passwords`,
+			ConfigDir:    `C:\Users\u\AppData\Roaming\age-tool`,
+			StateDir:     `C:\Users\u\AppData\Local\age-tool\logs`,
 		}},
 		{"windows without env", "windows", nil, `C:\Users\u`, Locations{
-			KeysDir:   `C:\Users\u\AppData\Roaming\age-tool\keys`,
-			ConfigDir: `C:\Users\u\AppData\Roaming\age-tool`,
-			StateDir:  `C:\Users\u\AppData\Local\age-tool\logs`,
+			KeysDir:      `C:\Users\u\AppData\Roaming\age-tool\keys`,
+			PasswordsDir: `C:\Users\u\AppData\Roaming\age-tool\passwords`,
+			ConfigDir:    `C:\Users\u\AppData\Roaming\age-tool`,
+			StateDir:     `C:\Users\u\AppData\Local\age-tool\logs`,
 		}},
 	}
 	for _, c := range cases {

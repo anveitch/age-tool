@@ -71,25 +71,52 @@ The weak-password check refuses:
 
 ## Milestone 3: Saved password records in the core
 
-- [ ] **Record contents:**
+- [x] **Record contents:**
   - the encrypted file names and full paths (one record per encryption, covering every file encrypted with that password)
   - the date and time
   - the SHA256 of each encrypted file, so a record can't be matched to the wrong file
   - the password
-- [ ] **Protection (D4):** each record is age-encrypted to **all of the user's own public keys** (keys with a private half), so any of them can open it. It is never stored unprotected.
-- [ ] **Location:** `passwords/` in age-tool's data folder, beside `keys/`. Never next to the encrypted file. The folder is `0700` and the files `0600`, like keys.
-- [ ] **List and open:**
+- [x] **Protection (D4):** each record is age-encrypted to **all of the user's own public keys** (keys with a private half), so any of them can open it. It is never stored unprotected.
+- [x] **Location:** `passwords/` in age-tool's data folder, beside `keys/`. Never next to the encrypted file. The folder is `0700` and the files `0600`, like keys.
+- [x] **List and open:**
   - listing records shows file names and dates without a passphrase
   - opening a record asks for a key passphrase, with the same 3 attempts
   - deleting a record asks first
-- [ ] **No key yet:** saving isn't possible, and the caller is told so (the app offers to create a key first, or to skip).
-- [ ] **Tests:**
+- [x] **No key yet:** saving isn't possible, and the caller is told so (the app offers to create a key first, or to skip).
+- [x] **Tests:**
   - encrypt to several own keys, open with each
   - wrong passphrase
   - permissions
   - the password never appears in any log or listing
 
 **Done when:** records round-trip with every own key, and nothing stores a password unprotected.
+
+**Result:** complete. `internal/core/records.go` adds:
+- `OwnKeys`, the key pairs with both halves; contacts are excluded
+- `SavePasswordRecord`, which refuses with `ErrNoOwnKey` when there's no own key
+- `ListPasswordRecords`, newest first, skipping damaged files
+- `OpenPasswordRecord`, which returns `ErrRecordNotForKey` for a key the record wasn't saved for
+- `DeletePasswordRecord`
+- `RecordsForFile`, which matches by SHA256, so moved or renamed files are still found
+
+`Locations.PasswordsDir` is `passwords/` beside `keys/` on each OS.
+
+**Format:** one JSON file per record:
+- a readable part: date, file paths and hashes, and the key names, which are already in the activity log
+- `secret`: the password together with the same files and date, age-encrypted (armored) to every own key
+
+Opening a record returns the encrypted copy, so editing the readable part can't change what a record says. Record IDs have a fixed shape (`20261127-153045-a1b2c3d4`), so an ID can't point outside the folder.
+
+7 new tests:
+- two keys and a contact
+- each key opening the record
+- a key added later refused
+- 0700/0600 permissions
+- the password not readable in the file
+- tampering
+- moved files
+- unsafe IDs
+- damaged records
 
 ## Milestone 4: CLI
 
@@ -164,8 +191,8 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 |---|---|
 | 1. Quit button | ✅ Complete |
 | 2. Password encryption in the core | ✅ Complete |
-| 3. Saved password records | Next |
-| 4. CLI | Not started |
+| 3. Saved password records | ✅ Complete |
+| 4. CLI | Next |
 | 5. Desktop app | Not started |
 | 6. Docs and 2.1.0 release | Not started |
 | 7. Mac desktop app | Waiting for the Apple Developer account |

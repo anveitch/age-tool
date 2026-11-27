@@ -19,9 +19,10 @@ const NicknameFileName = "keys.json"
 
 // Locations says where age-tool keeps its files.
 type Locations struct {
-	KeysDir   string // .pub / .priv key files and their keys.json nicknames
-	ConfigDir string // settings.json
-	StateDir  string // central audit log and receipts
+	KeysDir      string // .pub / .priv key files and their keys.json nicknames
+	PasswordsDir string // Saved password records (see records.go), beside the keys
+	ConfigDir    string // settings.json
+	StateDir     string // central audit log and receipts
 }
 
 // NicknameFile returns the path of the nickname file for the keys.
@@ -101,17 +102,19 @@ func locationsFor(goos string, getenv func(string) string, home string) (Locatio
 			local = join(home, "AppData", "Local")
 		}
 		return Locations{
-			KeysDir:   join(roaming, appDirName, "keys"),
-			ConfigDir: join(roaming, appDirName),
-			StateDir:  join(local, appDirName, "logs"),
+			KeysDir:      join(roaming, appDirName, "keys"),
+			PasswordsDir: join(roaming, appDirName, "passwords"),
+			ConfigDir:    join(roaming, appDirName),
+			StateDir:     join(local, appDirName, "logs"),
 		}, nil
 
 	case "darwin":
 		support := join(home, "Library", "Application Support", appDirName)
 		return Locations{
-			KeysDir:   join(support, "keys"),
-			ConfigDir: support,
-			StateDir:  join(home, "Library", "Logs", appDirName),
+			KeysDir:      join(support, "keys"),
+			PasswordsDir: join(support, "passwords"),
+			ConfigDir:    support,
+			StateDir:     join(home, "Library", "Logs", appDirName),
 		}, nil
 
 	default:
@@ -124,9 +127,10 @@ func locationsFor(goos string, getenv func(string) string, home string) (Locatio
 			return join(append([]string{home}, fallback...)...)
 		}
 		return Locations{
-			KeysDir:   join(xdg("XDG_DATA_HOME", ".local", "share"), appDirName, "keys"),
-			ConfigDir: join(xdg("XDG_CONFIG_HOME", ".config"), appDirName),
-			StateDir:  join(xdg("XDG_STATE_HOME", ".local", "state"), appDirName),
+			KeysDir:      join(xdg("XDG_DATA_HOME", ".local", "share"), appDirName, "keys"),
+			PasswordsDir: join(xdg("XDG_DATA_HOME", ".local", "share"), appDirName, "passwords"),
+			ConfigDir:    join(xdg("XDG_CONFIG_HOME", ".config"), appDirName),
+			StateDir:     join(xdg("XDG_STATE_HOME", ".local", "state"), appDirName),
 		}, nil
 	}
 }
