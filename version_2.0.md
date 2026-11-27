@@ -273,7 +273,12 @@ Each one needs settling before the milestone it affects.
 |---|---|
 | 1. Shared core package | ✅ Complete |
 | 2. Key store and standard locations | ✅ Complete |
-| 3. Desktop GUI (Fyne) | Built; usability test on Ubuntu pending |
-| 4. Desktop and file manager integration | Built; testing on the four desktops pending |
-| 5. Build, packaging and release process | Built; first `release.sh` run (2.0.0-rc.1) pending; Linux testing deferred to the rc (risk accepted) |
-| 6. Documentation and 2.0.0 release | Docs written; rc.1, tester fixes and 2.0.0 pending |
+| 3. Desktop GUI (Fyne) | ✅ Released in 2.0.0. The non-technical usability test is still to do. |
+| 4. Desktop and file manager integration | ✅ Released in 2.0.0. Tested on GNOME (real Ubuntu) and XFCE (Docker); KDE and Cinnamon to follow. |
+| 5. Build, packaging and release process | ✅ Complete: 2.0.0-rc.1 and 2.0.0 both released with `release.sh` |
+| 6. Documentation and 2.0.0 release | ✅ Complete: **2.0.0 released 2026-11-27** |
+
+**After 2.0.0:**
+- the non-technical usability test ([docs/usability-test.md](docs/usability-test.md))
+- KDE and Cinnamon checks ([docs/desktop-integration-test.md](docs/desktop-integration-test.md))
+- the post-2.0 ideas under Non-goals: Flatpak, a macOS `.app`, multiple recipients
