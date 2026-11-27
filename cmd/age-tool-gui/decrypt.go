@@ -13,14 +13,15 @@ import (
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/container"
-	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 )
 
 // showDecrypt shows the decrypt screen: 1. choose a .age file, 2. choose
-// your key, then Decrypt (which asks for the key's passphrase). files
-// pre-fills step 1; with several files, each is decrypted in turn.
+// your key, then Decrypt (which asks for the key's passphrase). Files
+// encrypted with a password need no key: step 2 says so, and Decrypt asks
+// for the password instead. files pre-fills step 1; with several files,
+// each is decrypted in turn, the right way for each.
 func (g *gui) showDecrypt(files []string) {
 	decryptBtn := widget.NewButtonWithIcon("Decrypt", theme.ConfirmIcon(), nil)
 	decryptBtn.Importance = widget.HighImportance
@@ -41,15 +42,6 @@ func (g *gui) showDecrypt(files []string) {
 			unprotected++
 		}
 	}
-	if len(usable) == 0 {
-		msg := "You need your own key to decrypt files. Files can only be decrypted with the key they were encrypted for."
-		if unprotected > 0 {
-			msg = "Your private key isn't protected by a passphrase yet, so it can't be used. " +
-				"Go to My keys and choose Protect."
-		}
-		g.showNoKeys("Decrypt a file", msg)
-		return
-	}
 	labels := make([]string, len(usable))
 	byLabel := map[string]app.Choice{}
 	for i, id := range usable {
@@ -64,13 +56,46 @@ func (g *gui) showDecrypt(files []string) {
 		key.SetSelected(labels[0])
 	}
 
+	// What step 2 shows instead of the keys: a note when every chosen file
+	// uses a password, or why there's no key to choose
+	passwordNote := wrapped("The chosen file is protected with a password, so no key is needed. " +
+		"You'll be asked for the password when you choose Decrypt.")
+	noKeysMsg := "You need your own key to decrypt files encrypted for a key. Files can only be decrypted with the key they were encrypted for. " +
+		"(Files protected with a password don't need a key.)"
+	if unprotected > 0 {
+		noKeysMsg = "Your private key isn't protected by a passphrase yet, so it can't be used. " +
+			"Go to My keys and choose Protect. (Files protected with a password don't need a key.)"
+	}
+	goToKeys := widget.NewButtonWithIcon("Go to My keys", theme.AccountIcon(), g.showKeys)
+	noKeys := container.NewVBox(wrapped(noKeysMsg), container.NewHBox(goToKeys))
+	step2 := container.NewVBox()
+
+	// allPassword reports whether every chosen file is a password file
+	allPassword := func() bool {
+		if len(files) == 0 {
+			return false
+		}
+		for _, f := range files {
+			if m, err := g.svc.LockMethod(f); err != nil || m != core.LockedWithPassword {
+				return false
+			}
+		}
+		return true
+	}
+
 	// Decrypt is enabled once both steps are complete
 	update := func() {
-		if len(files) > 0 && key.Selected != "" {
-			decryptBtn.Enable()
-		} else {
-			decryptBtn.Disable()
+		needKey := !allPassword()
+		switch {
+		case !needKey:
+			step2.Objects = []fyne.CanvasObject{passwordNote}
+		case len(usable) == 0:
+			step2.Objects = []fyne.CanvasObject{noKeys}
+		default:
+			step2.Objects = []fyne.CanvasObject{key}
 		}
+		step2.Refresh()
+		setEnabled(decryptBtn, len(files) > 0 && (!needKey || key.Selected != ""))
 	}
 	key.OnChanged = func(string) { update() }
 	fileStep := g.fileStep(files, true, func(chosen []string) {
@@ -90,14 +115,15 @@ func (g *gui) showDecrypt(files []string) {
 		stepHeading("2. Which of your keys?"),
 	}
 	note := "The decrypted copy is saved next to the encrypted file, without the .age ending."
-	if unprotected > 0 {
+	if unprotected > 0 && len(usable) > 0 {
 		note = fmt.Sprintf("%d of your private keys can't be used until it is protected with a passphrase (see My keys).\n", unprotected) + note
 	}
-	g.showScreen("Decrypt a file", true, workflowLayout(top, key, note, decryptBtn))
+	g.showScreen("Decrypt a file", true, workflowLayout(top, step2, note, decryptBtn))
 }
 
-// decryptFiles decrypts files[i:] one at a time with key, then reports
-// what was saved. The passphrase is asked for each file and never kept.
+// decryptFiles decrypts files[i:] one at a time, then reports what was
+// saved. Each file is decrypted the way it was locked: with a password, or
+// with key (whose passphrase is asked for each file and never kept).
 func (g *gui) decryptFiles(files []string, key app.Choice, i int, saved []string) {
 	if i == len(files) {
 		g.reportSaved("Decrypted", saved, "")
@@ -108,6 +134,21 @@ func (g *gui) decryptFiles(files []string, key app.Choice, i int, saved []string
 	next := func() { g.decryptFiles(files, key, i+1, saved) }
 	succeeded := func(output string) {
 		g.decryptFiles(files, key, i+1, append(saved, output))
+	}
+
+	// A password file needs its password, not a key
+	method, err := g.svc.LockMethod(input)
+	if err != nil {
+		g.problem(title, err, next)
+		return
+	}
+	if method == core.LockedWithPassword {
+		g.decryptWithPassword(input, succeeded, next)
+		return
+	}
+	if key.File == "" {
+		g.tell(title, filepath.Base(input)+" was encrypted for a key. Choose one of your keys to decrypt it.", next)
+		return
 	}
 
 	// Check the file, key and output before asking for the passphrase
@@ -131,62 +172,28 @@ func (g *gui) decryptFiles(files []string, key app.Choice, i int, saved []string
 }
 
 // askPassphrase asks for the key's passphrase and tries it, allowing the
-// number of attempts the Decryption permits. note is shown above the
-// field (e.g. "That passphrase is incorrect. 2 attempts left."). On
+// number of attempts the Decryption permits. note, if set, is shown above
+// the field (e.g. "That passphrase is incorrect. 2 attempts left."). On
 // success it calls succeeded with the output path; on giving up, failure
 // or cancel it calls next.
 func (g *gui) askPassphrase(d *app.Decryption, key app.Choice, input, note string, succeeded func(string), next func()) {
-	entry := widget.NewPasswordEntry()
-	entry.SetPlaceHolder("Passphrase")
-
-	prompt := fmt.Sprintf("Enter the passphrase for your key \"%s\" to decrypt %s.", key.Name, filepath.Base(input))
-	info := widget.NewLabel(prompt)
-	info.Wrapping = fyne.TextWrapWord
-	content := []fyne.CanvasObject{info}
-	if note != "" {
-		warning := widget.NewLabel(note)
-		warning.Importance = widget.DangerImportance
-		content = append(content, warning)
-	}
-	content = append(content, entry)
-
-	// submit runs once the dialog has closed with Decrypt (button or Enter)
-	submit := func() {
-		// Take the passphrase out of the field straight away. Try zeroes
-		// the byte copy; the field's own string can't be zeroed, but is
-		// dropped as soon as the dialog closes.
-		pass := []byte(entry.Text)
-		entry.SetText("")
-		if len(pass) == 0 {
-			g.askPassphrase(d, key, input, note, succeeded, next)
-			return
-		}
-		runBusy(g, "Unlocking your key…",
-			func() (app.Result, error) { return d.Try(pass) },
-			func(res app.Result, err error) {
-				switch {
-				case err == nil:
-					g.warn(res.Warnings, func() { succeeded(res.Output) })
-				case errors.Is(err, core.ErrWrongPassphrase):
-					g.askPassphrase(d, key, input, app.AttemptsMessage(d.AttemptsLeft()), succeeded, next)
-				default:
-					g.problem("Couldn't decrypt "+filepath.Base(input), err, next)
-				}
-			})
-	}
-	// Note: Hide() on a Fyne dialog reports Cancel, so Enter must press the
-	// Decrypt button (Confirm) rather than hide the dialog itself
-	form := dialog.NewCustomConfirm("Passphrase", "Decrypt", "Cancel", container.NewVBox(content...),
-		func(ok bool) {
-			if ok {
-				submit()
-			} else {
-				entry.SetText("")
-				next()
-			}
-		}, g.win)
-	entry.OnSubmitted = func(string) { form.Confirm() }
-	form.Resize(fyne.NewSize(420, form.MinSize().Height))
-	form.Show()
-	g.win.Canvas().Focus(entry)
+	var res app.Result
+	g.askSecret(secretPrompt{
+		title:        "Passphrase",
+		prompt:       fmt.Sprintf("Enter the passphrase for your key \"%s\" to decrypt %s.", key.Name, filepath.Base(input)),
+		placeholder:  "Passphrase",
+		confirm:      "Decrypt",
+		busy:         "Unlocking your key…",
+		wrong:        core.ErrWrongPassphrase,
+		attemptsLeft: d.AttemptsLeft,
+		wrongMessage: app.AttemptsMessage,
+		try: func(secret []byte) error {
+			r, err := d.Try(secret)
+			res = r
+			return err
+		},
+		succeeded: func() { g.warn(res.Warnings, func() { succeeded(res.Output) }) },
+		failTitle: "Couldn't decrypt " + filepath.Base(input),
+		next:      next,
+	}, note)
 }

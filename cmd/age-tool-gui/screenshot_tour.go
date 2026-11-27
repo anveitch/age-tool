@@ -28,6 +28,7 @@ import (
 
 	"filippo.io/age"
 	"fyne.io/fyne/v2"
+	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/widget"
 )
 
@@ -90,6 +91,41 @@ func init() {
 			}
 			shot("14-saved", func() { g.reportSaved("Encrypted", []string{input + ".age"}, "Alice Smith") })
 			shot("15-activity", g.showActivity)
+
+			// Passwords: encrypting with a suggested password
+			shot("16-encrypt-password", func() {
+				g.showEncrypt([]string{input})
+				if r := devFind[*widget.RadioGroup](g.win.Content(), nil); r != nil {
+					r.SetSelected(passwordChoice)
+				}
+				if b := devFind(g.win.Content(), func(b *widget.Button) bool { return b.Text == "Suggest a password" }); b != nil {
+					b.OnTapped()
+				}
+			})
+			holiday := filepath.Join(docs, "Holiday plans.txt")
+			_ = os.WriteFile(holiday, []byte("plans"), 0600)
+			pw, _ := g.svc.SuggestPassword()
+			res, err := g.svc.EncryptWithPassword(holiday, pw, true)
+			if err == nil {
+				_ = os.Remove(holiday)
+				shot("17-keep-record", func() { g.afterPasswordEncrypt([]string{res.Output}, pw) })
+				shot("18-password-once", func() { g.showPasswordOnce([]string{res.Output}, pw, "") })
+				_, _ = g.svc.SavePasswordRecord([]string{res.Output}, pw)
+				shot("19-decrypt-password", func() { g.showDecrypt([]string{res.Output}) })
+				shot("20-password-prompt", func() { g.decryptWithPassword(res.Output, func(string) {}, func() {}) })
+				shot("21-saved-passwords", func() {
+					g.showSavedPasswords()
+					if l := devFindList(g.win.Content()); l != nil {
+						l.Select(0)
+					}
+				})
+				if recs, _, _ := g.svc.PasswordRecords(); len(recs) > 0 {
+					shot("22-saved-password-shown", func() {
+						opened := recs[0]
+						g.showRecordPassword(opened, pw)
+					})
+				}
+			}
 			fyne.Do(g.fy.Quit)
 		}()
 	}
@@ -97,15 +133,33 @@ func init() {
 
 // devFindList returns the first list in the content.
 func devFindList(o fyne.CanvasObject) *widget.List {
+	return devFind[*widget.List](o, nil)
+}
+
+// devFind returns the first object of type T in o's containers and
+// scrolling areas that matches (all match if match is nil), or T's zero
+// value (nil) if there is none.
+func devFind[T fyne.CanvasObject](o fyne.CanvasObject, match func(T) bool) T {
+	found, _ := devSearch(o, match)
+	return found
+}
+
+// devSearch does devFind's work, reporting whether anything was found
+// (a nil pointer in an interface isn't nil, so the flag is needed).
+func devSearch[T fyne.CanvasObject](o fyne.CanvasObject, match func(T) bool) (T, bool) {
+	if v, ok := o.(T); ok && (match == nil || match(v)) {
+		return v, true
+	}
 	switch v := o.(type) {
-	case *widget.List:
-		return v
 	case *fyne.Container:
 		for _, c := range v.Objects {
-			if l := devFindList(c); l != nil {
-				return l
+			if found, ok := devSearch(c, match); ok {
+				return found, true
 			}
 		}
+	case *container.Scroll:
+		return devSearch(v.Content, match)
 	}
-	return nil
+	var zero T
+	return zero, false
 }

@@ -31,8 +31,8 @@ func (g *gui) showHome() {
 		return container.NewGridWrap(fyne.NewSize(360, 56), b)
 	}
 
-	intro := widget.NewLabel("Keep files private by encrypting them for a key. Only the matching private key, " +
-		"protected by its passphrase, can decrypt them.")
+	intro := widget.NewLabel("Keep files private by encrypting them for a key, or with a password. " +
+		"Only the matching private key, protected by its passphrase, or the password can decrypt them.")
 	intro.Wrapping = fyne.TextWrapWord
 
 	actions := container.NewVBox(

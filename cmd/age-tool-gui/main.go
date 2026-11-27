@@ -65,7 +65,7 @@ func main() {
 	// window lists, docks and Alt+Tab show); the app icon alone isn't
 	// always copied to the window
 	g.win.SetIcon(icon)
-	g.win.Resize(fyne.NewSize(620, 520))
+	g.win.Resize(fyne.NewSize(620, 600))
 
 	// Files given on the command line are converted to absolute paths, so
 	// dialogs and messages refer to them unambiguously

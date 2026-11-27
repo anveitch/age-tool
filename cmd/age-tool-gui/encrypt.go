@@ -18,38 +18,48 @@ import (
 )
 
 // showEncrypt shows the encrypt screen: 1. choose a file, 2. choose who
-// it's for, then Encrypt. files pre-fills step 1 (from the command line or
-// a drop); with several files, each is encrypted for the same person.
+// it's for (a key, or a password instead), then Encrypt. files pre-fills
+// step 1 (from the command line or a drop); with several files, each is
+// encrypted the same way.
 func (g *gui) showEncrypt(files []string) {
 	encryptBtn := widget.NewButtonWithIcon("Encrypt", theme.ConfirmIcon(), nil)
 	encryptBtn.Importance = widget.HighImportance
 
-	// Step 2: the people (keys) a file can be encrypted for
+	// Step 2: the people (keys) a file can be encrypted for, then the
+	// password option, which needs no key at all
 	recipients, err := g.svc.Recipients()
 	if err != nil {
 		g.problem("Couldn't read your keys", err, g.showHome)
 		return
 	}
-	if len(recipients) == 0 {
-		g.showNoKeys("Encrypt a file", "You need a key before you can encrypt files. "+
-			"Create your own key, or add a contact's public key to encrypt files for them.")
-		return
-	}
 	labels, byLabel := g.recipientLabels(recipients)
+	labels = append(labels, passwordChoice)
 	who := widget.NewRadioGroup(labels, nil)
-	if len(labels) == 1 {
-		who.SetSelected(labels[0]) // Only one choice: pick it
-	}
 
-	// Encrypt is enabled once both steps are complete
+	// Encrypt is enabled once both steps are complete: a key chosen, or a
+	// usable password typed
+	var panel *passwordPanel
 	update := func() {
-		if len(files) > 0 && who.Selected != "" {
-			encryptBtn.Enable()
-		} else {
-			encryptBtn.Disable()
-		}
+		ready := len(files) > 0 && who.Selected != "" &&
+			(who.Selected != passwordChoice || panel.valid)
+		setEnabled(encryptBtn, ready)
 	}
-	who.OnChanged = func(string) { update() }
+	panel = g.newPasswordPanel(update)
+	who.OnChanged = func(selected string) {
+		if selected == passwordChoice {
+			panel.box.Show()
+			// Bring the password fields into view below the choices
+			scrollToBottom(g.win.Content())
+		} else {
+			panel.box.Hide()
+		}
+		update()
+	}
+	if len(recipients) == 0 {
+		who.SetSelected(passwordChoice) // No keys: a password is the only way
+	} else if len(recipients) == 1 {
+		who.SetSelected(labels[0]) // Only one key: pick it
+	}
 	fileStep := g.fileStep(files, false, func(chosen []string) {
 		files = chosen
 		update()
@@ -57,9 +67,19 @@ func (g *gui) showEncrypt(files []string) {
 	update()
 
 	encryptBtn.OnTapped = func() {
+		if who.Selected == passwordChoice {
+			password := panel.password.Text
+			g.encryptFilesWithPassword(files, password, 0, nil)
+			return
+		}
 		g.encryptFiles(files, byLabel[who.Selected], 0, nil)
 	}
 
+	note := "The encrypted copy is saved next to the original, ending in .age. The original is not changed."
+	if len(recipients) == 0 {
+		note = "You don't have any keys yet, so you can protect files with a password. " +
+			"Create a key in My keys to encrypt files for yourself or a contact.\n" + note
+	}
 	g.showScreen("Encrypt a file", true, workflowLayout(
 		[]fyne.CanvasObject{
 			stepHeading("1. Choose the file to encrypt"),
@@ -67,9 +87,22 @@ func (g *gui) showEncrypt(files []string) {
 			widget.NewSeparator(),
 			stepHeading("2. Who is it for?"),
 		},
-		who,
-		"The encrypted copy is saved next to the original, ending in .age. The original is not changed.",
+		container.NewVBox(who, panel.box),
+		note,
 		encryptBtn))
+}
+
+// scrollToBottom scrolls the first scrolling area in o to its end, e.g.
+// to show fields that just appeared below a list of choices.
+func scrollToBottom(o fyne.CanvasObject) {
+	switch v := o.(type) {
+	case *container.Scroll:
+		v.ScrollToBottom()
+	case *fyne.Container:
+		for _, c := range v.Objects {
+			scrollToBottom(c)
+		}
+	}
 }
 
 // recipientLabels makes a label for each public key: its name, marked

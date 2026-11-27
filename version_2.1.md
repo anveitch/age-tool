@@ -141,18 +141,43 @@ Opening a record returns the encrypted copy, so editing the readable part can't 
 
 ## Milestone 5: Desktop app
 
-- [ ] **Encrypt screen:** "Who is it for?" gains **Protect with a password instead**. It shows:
+- [x] **Encrypt screen:** "Who is it for?" gains **Protect with a password instead**. It shows:
   - password and confirm fields
   - the strength meter, with the rule shown
   - a **Suggest a password** button
   - the reminder to send the password separately from the file (for example, by phone)
-- [ ] **Keep a record?** dialog (D5):
+- [x] **Keep a record?** dialog (D5):
   - **Save it, protected by my key** *(default)*, with the warning: "If you forget your key's passphrase, you lose this record too."
   - **Don't save it**, which shows the password once, with Copy
-- [ ] **Decrypt:** a password file skips "Which of your keys?" and asks for the password.
-- [ ] **Saved passwords** screen, from My keys: list, **Show password** (asks for the key passphrase, with Copy), delete.
-- [ ] Right-click and double-click need no changes. The app decides from the file.
-- [ ] Tests and the screenshot tour updated.
+- [x] **Decrypt:** a password file skips "Which of your keys?" and asks for the password.
+- [x] **Saved passwords** screen, from My keys: list, **Show password** (asks for the key passphrase, with Copy), delete.
+- [x] Right-click and double-click need no changes. The app decides from the file.
+- [x] Tests and the screenshot tour updated.
+
+**Result:** complete.
+
+- **App layer** ([internal/app/passwords.go](internal/app/passwords.go)):
+  - rules, suggestions and `CheckNewPassword`
+  - `EncryptWithPassword`
+  - `LockMethod`
+  - `PasswordDecryption`, with 3 attempts like `Decryption`
+  - records: `CanSavePasswordRecords`, `SavePasswordRecord`, `PasswordRecords`, `RecordKeys`, `RecordOpening` (3 key-passphrase attempts), `DeletePasswordRecord`
+  - plain-language messages for each new error
+
+  `NewWithLocations` puts the passwords folder beside the keys if none is given.
+- **Screens** ([cmd/age-tool-gui/passwords.go](cmd/age-tool-gui/passwords.go)):
+  - **Encrypt:** "A password instead of a key" shows the password fields, a live rule check, and **Suggest a password** with the suggestion and Copy. With no keys at all, it's chosen automatically, so key-less users can still protect files.
+  - **After a password encrypt:** "Keep a record?" (save by default, explaining only the selected choice), or the password shown once with Copy. Without an own key, it's shown once with the reason.
+  - **Decrypt:** step 2 says no key is needed when every chosen file is a password file. Mixed selections are decrypted each the right way. The password prompt mentions a saved record.
+  - **My keys:** a **Saved passwords** screen to list, show (key passphrase, 3 attempts, Copy) and delete.
+  - **Activity:** says "with a password".
+  - **Home:** the intro mentions passwords.
+- **Shared prompt:** one passphrase/password dialog (`askSecret`) now serves key decryption, password decryption and opening records.
+- **Window:** the default window is now 620×600 (was 520 tall), so the password panel fits without scrolling.
+- **Tests:**
+  - 3 GUI tests click through the whole journey: no-keys password encrypt with a weak password refused, the suggestion plus record, the decrypt screen, a wrong then a right password, showing and deleting the record, the activity wording, and a mixed password-and-key decrypt
+  - 3 app tests
+  - the screenshot tour gains 7 password screens (16–22), checked in the real window on Ubuntu 24.04
 
 ## Milestone 6: Docs and 2.1.0 release
 
@@ -201,6 +226,6 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 | 2. Password encryption in the core | ✅ Complete |
 | 3. Saved password records | ✅ Complete |
 | 4. CLI | ✅ Complete |
-| 5. Desktop app | Next |
-| 6. Docs and 2.1.0 release | Not started |
+| 5. Desktop app | ✅ Complete |
+| 6. Docs and 2.1.0 release | Next |
 | 7. Mac desktop app | Waiting for the Apple Developer account |

@@ -39,7 +39,7 @@ func newTestGUI(t *testing.T) (*gui, string) {
 	}
 	a := test.NewTempApp(t)
 	g := &gui{fy: a, win: a.NewWindow("age-tool"), svc: svc}
-	g.win.Resize(fyne.NewSize(620, 520))
+	g.win.Resize(fyne.NewSize(620, 600))
 	docs := filepath.Join(root, "docs")
 	if err := os.Mkdir(docs, 0700); err != nil {
 		t.Fatal(err)

@@ -68,11 +68,18 @@ func (g *gui) showActivity() {
 }
 
 // describeActivity returns an icon and a one-line description of a
-// transaction, e.g. "Encrypted report.pdf for Alice".
+// transaction, e.g. "Encrypted report.pdf for Alice" or "Encrypted
+// report.pdf with a password".
 func describeActivity(e core.ActivityEntry) (fyne.Resource, string) {
 	key := e.KeyNickname
 	if key == "" {
 		key = trimExt(e.Key)
+	}
+	switch {
+	case e.Type == core.ActivityEncrypt && e.Method == core.MethodPassword:
+		return theme.ContentAddIcon(), fmt.Sprintf("Encrypted %s with a password  (%s)", filepath.Base(e.Source), filepath.Dir(e.Source))
+	case e.Type == core.ActivityDecrypt && e.Method == core.MethodPassword:
+		return theme.VisibilityIcon(), fmt.Sprintf("Decrypted %s with a password  (%s)", filepath.Base(e.Source), filepath.Dir(e.Source))
 	}
 	switch e.Type {
 	case core.ActivityEncrypt:

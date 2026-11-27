@@ -31,7 +31,8 @@ func (g *gui) showKeys() {
 	createBtn := widget.NewButtonWithIcon("Create a key", theme.ContentAddIcon(), func() { g.showCreateKey("", "", "") })
 	createBtn.Importance = widget.HighImportance
 	contactBtn := widget.NewButtonWithIcon("Add a contact", theme.AccountIcon(), func() { g.showAddContact("", "", "", "") })
-	top := container.NewHBox(createBtn, contactBtn)
+	savedBtn := widget.NewButtonWithIcon("Saved passwords", theme.VisibilityIcon(), g.showSavedPasswords)
+	top := container.NewHBox(createBtn, contactBtn, savedBtn)
 
 	if len(keys) == 0 {
 		intro := widget.NewLabel("You don't have any keys yet.\n\n" +
