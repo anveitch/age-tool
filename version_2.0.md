@@ -250,7 +250,7 @@ The app offers it from **Home → Desktop integration** (Linux only), and `age-t
 
 **Done when:** 2.0.0 is published, and the docs let a new user get from download to first decrypted file on their own.
 
-**Progress:** the docs are written. Release notes for testers: [docs/releases/2.0.0-rc.1.md](docs/releases/2.0.0-rc.1.md). The screenshots in `docs/images/` come from the real app window on Ubuntu 24.04 (the screenshot tour under Xvfb, with a `/home/sam` home folder). Next: `2.0.0-rc.1` from `v2`, then the testers' fixes, then merge `v2` into `master` and release `2.0.0` from there.
+**Progress:** the docs are written. Release notes for testers: [docs/releases/2.0.0-rc.1.md](docs/releases/2.0.0-rc.1.md). Release notes for 2.0.0: [docs/releases/2.0.0.md](docs/releases/2.0.0.md). The screenshots in `docs/images/` come from the real app window on Ubuntu 24.04 (the screenshot tour under Xvfb, with a `/home/sam` home folder). Next: `2.0.0-rc.1` from `v2`, then the testers' fixes, then merge `v2` into `master` and release `2.0.0` from there.
 
 ---
 
