@@ -7,4 +7,4 @@ package core
 // desktop app so both always report the same number. release.sh rewrites
 // this line when making a release; between releases it carries a "-dev"
 // suffix so development builds are never mistaken for a release.
-const Version = "2.0.1-dev"
+const Version = "2.1.0-dev"
