@@ -28,9 +28,9 @@ Milestones are done **in order**. Each one ends with its own tests passing and a
 
 ## Milestone 1: Quit button
 
-- [ ] **Quit** on the home screen, beside View activity and Desktop integration.
-- [ ] If an operation is running, it asks first and removes any half-written output. This is the same path as closing the window, so the code is shared, not duplicated.
-- [ ] Test, and a screenshot check.
+- [x] **Quit** on the home screen, beside View activity and Desktop integration.
+- [x] If an operation is running, it asks first and removes any half-written output. This is the same path as closing the window, so the code is shared, not duplicated.
+- [x] Test, and a screenshot check.
 
 **Done when:** the button quits from the home screen, and asks first while working.
 
@@ -147,8 +147,8 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 
 | Milestone | Status |
 |---|---|
-| 1. Quit button | In progress |
-| 2. Password encryption in the core | Not started |
+| 1. Quit button | ✅ Complete |
+| 2. Password encryption in the core | Next |
 | 3. Saved password records | Not started |
 | 4. CLI | Not started |
 | 5. Desktop app | Not started |

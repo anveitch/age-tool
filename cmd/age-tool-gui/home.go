@@ -21,7 +21,8 @@ import (
 )
 
 // showHome shows the home screen: three large actions, plus the activity
-// view. Files can also be dropped anywhere on the window.
+// view, desktop integration (Linux) and Quit. Files can also be dropped
+// anywhere on the window.
 func (g *gui) showHome() {
 	// bigButton makes a tall, clearly labelled action button
 	bigButton := func(label string, icon fyne.Resource, tapped func()) fyne.CanvasObject {
@@ -48,6 +49,10 @@ func (g *gui) showHome() {
 		integrate.Importance = widget.LowImportance
 		extras.Add(integrate)
 	}
+	// Quit, for people who don't know to close the window
+	quit := widget.NewButtonWithIcon("Quit", theme.LogoutIcon(), g.quit)
+	quit.Importance = widget.LowImportance
+	extras.Add(quit)
 	hint := widget.NewLabelWithStyle("Tip: you can also drop files onto this window.",
 		fyne.TextAlignCenter, fyne.TextStyle{Italic: true})
 

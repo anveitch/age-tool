@@ -331,3 +331,48 @@ func walk(o fyne.CanvasObject, fn func(fyne.CanvasObject)) {
 		}
 	}
 }
+
+// TestQuitButton checks the home screen's Quit button: it quits straight
+// away when idle, and asks first while an operation is running, keeping
+// the app open if the user cancels.
+func TestQuitButton(t *testing.T) {
+	g, _ := newTestGUI(t)
+	g.showHome()
+
+	// Find the Quit button on the home screen
+	var quit *widget.Button
+	walk(g.win.Content(), func(o fyne.CanvasObject) {
+		if b, ok := o.(*widget.Button); ok && b.Text == "Quit" {
+			quit = b
+		}
+	})
+	if quit == nil {
+		t.Fatal("no Quit button on the home screen")
+	}
+
+	// Idle: no question asked
+	test.Tap(quit)
+	if n := len(g.win.Canvas().Overlays().List()); n != 0 {
+		t.Fatalf("idle Quit showed %d dialog(s)", n)
+	}
+
+	// Busy: asks first, and Cancel keeps the app open
+	g.busy = true
+	test.Tap(quit)
+	var no *widget.Button
+	for _, o := range g.win.Canvas().Overlays().List() {
+		walk(o, func(c fyne.CanvasObject) {
+			if b, ok := c.(*widget.Button); ok && b.Text == "No" {
+				no = b
+			}
+		})
+	}
+	if no == nil {
+		t.Fatal("busy Quit didn't ask first")
+	}
+	capture(t, g, "quit-while-busy")
+	test.Tap(no)
+	if !g.busy {
+		t.Fatal("cancelling the question changed the busy state")
+	}
+}

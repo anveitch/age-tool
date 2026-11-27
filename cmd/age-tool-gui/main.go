@@ -138,21 +138,26 @@ func (g *gui) installCleanup() {
 		os.Exit(1)
 	}()
 
-	// Closing the window while working asks first, then cleans up
-	g.win.SetCloseIntercept(func() {
-		if !g.busy {
-			g.fy.Quit()
-			return
-		}
-		dialog.ShowConfirm("Stop and quit?",
-			"age-tool is still working. If you quit now, the file being written will be removed.",
-			func(quit bool) {
-				if quit {
-					core.RemoveInProgressOutput()
-					g.fy.Quit()
-				}
-			}, g.win)
-	})
+	// Closing the window goes through the same path as the Quit button
+	g.win.SetCloseIntercept(g.quit)
+}
+
+// quit closes age-tool. It is used by the Quit button and by closing the
+// window. While an operation is running it asks first, then removes the
+// half-written output so no partial plaintext is left behind.
+func (g *gui) quit() {
+	if !g.busy {
+		g.fy.Quit()
+		return
+	}
+	dialog.ShowConfirm("Stop and quit?",
+		"age-tool is still working. If you quit now, the file being written will be removed.",
+		func(quit bool) {
+			if quit {
+				core.RemoveInProgressOutput()
+				g.fy.Quit()
+			}
+		}, g.win)
 }
 
 // openDropped starts the right workflow for files dropped on the window:
