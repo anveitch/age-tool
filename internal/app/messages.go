@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 
 	"age-tool/internal/core"
@@ -33,6 +34,10 @@ var messages = []message{
 	{ErrFinished, "This decryption has already finished. Please start again."},
 	{ErrDecryptFailed, "The file couldn't be decrypted. It may be damaged or incomplete, or there may not be enough disk space. Nothing was saved."},
 	{ErrEncryptFailed, "The file couldn't be encrypted. There may not be enough disk space, or the folder may be read-only. Nothing was saved."},
+	{core.ErrWrongPassword, "That password is incorrect. Please try again."},
+	{ErrTooManyPasswordAttempts, "The password was incorrect too many times. Please start again."},
+	{ErrNotPasswordFile, "This file was encrypted for a key, not with a password. Choose one of your keys to decrypt it."},
+	{ErrPasswordMismatch, "The two passwords don't match. Please type them again."},
 	{core.ErrFileTooLarge, fmt.Sprintf("This file is too large. The limit is %d GB.", core.MaxFileSize/(1024*1024*1024))},
 
 	// Keys
@@ -43,6 +48,12 @@ var messages = []message{
 	{ErrPassphraseMismatch, "The two passphrases don't match. Please type them again."},
 	{core.ErrPassphraseTooShort, fmt.Sprintf("The passphrase must be at least %d characters long.", core.MinPassphraseLen)},
 	{core.ErrInvalidName, fmt.Sprintf("Please use a simple name, up to %d characters, without slashes or \"..\".", core.MaxInputLength)},
+
+	// Saved passwords
+	{core.ErrNoOwnKey, "You need a key of your own to save a record of a password. Create one in My keys."},
+	{core.ErrRecordNotForKey, "This saved password wasn't protected with that key. Try another of your keys."},
+	{core.ErrRecordNotFound, "That saved password couldn't be found. It may have been deleted."},
+	{core.ErrRecordDamaged, "That saved password is damaged and can't be read."},
 
 	// File system problems
 	{core.ErrFileUnavailable, "The file couldn't be opened. It may have been moved or deleted."},
@@ -73,6 +84,26 @@ func AttemptsMessage(left int) string {
 		return "That passphrase is incorrect. 1 attempt left."
 	}
 	return fmt.Sprintf("That passphrase is incorrect. %d attempts left.", left)
+}
+
+// PasswordAttemptsMessage describes a wrong file password with attempts
+// remaining, e.g. "That password is incorrect. 2 attempts left."
+func PasswordAttemptsMessage(left int) string {
+	if left == 1 {
+		return "That password is incorrect. 1 attempt left."
+	}
+	return fmt.Sprintf("That password is incorrect. %d attempts left.", left)
+}
+
+// PasswordProblem describes why a new file password can't be used. A
+// rule problem shows the rule check's own text (which says exactly what to
+// change), with a capital letter; other errors get their usual Message.
+func PasswordProblem(err error) string {
+	if errors.Is(err, core.ErrPasswordTooWeak) {
+		text := err.Error()
+		return strings.ToUpper(text[:1]) + text[1:] + "."
+	}
+	return Message(err)
 }
 
 // StrengthLabel describes a passphrase strength rating for a meter.

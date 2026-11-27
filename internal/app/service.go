@@ -81,6 +81,11 @@ func NewWithLocations(loc core.Locations) (*Service, error) {
 	if err := core.EnsurePrivateDir(loc.KeysDir); err != nil {
 		return nil, err
 	}
+	// Saved password records go beside the keys if no folder was given,
+	// never into whatever the current folder happens to be
+	if loc.PasswordsDir == "" {
+		loc.PasswordsDir = filepath.Join(filepath.Dir(loc.KeysDir), "passwords")
+	}
 	return &Service{Locations: loc, KeysDir: loc.KeysDir, Now: time.Now}, nil
 }
 
