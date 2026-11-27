@@ -399,8 +399,8 @@ func checkKeyFilePermissions(reader *bufio.Reader) {
 
 // ─── Encrypt ────────────────────────────────────────────────────────────────
 
-// encrypt walks the user through selecting a file and public key, then
-// encrypts the file. Errors are printed but do not terminate the program,
+// encrypt walks the user through selecting a file and then a public key
+// or a password, then encrypts the file. Errors are printed but do not terminate the program,
 // allowing the user to return to the main menu.
 func encrypt(reader *bufio.Reader) {
 	// List all non-.age files in the current directory as encryption candidates
@@ -429,6 +429,19 @@ func encrypt(reader *bufio.Reader) {
 	// Validate the selected file exists and is within size limits
 	if _, err := core.CheckFileSize(inputPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
+	// Lock it for a key, or with a password
+	fmt.Println("\nEncrypt for:")
+	fmt.Println("  1) A key (yours or a contact's)")
+	fmt.Println("  2) A password")
+	method, ok := promptSelectionOrBack(reader, "Choose", 2)
+	if !ok {
+		return
+	}
+	if method == 1 {
+		encryptWithPassword(reader, inputPath)
 		return
 	}
 
@@ -481,9 +494,10 @@ func encrypt(reader *bufio.Reader) {
 
 // ─── Decrypt ────────────────────────────────────────────────────────────────
 
-// decrypt walks the user through selecting an .age file and a
-// passphrase-protected .priv key, unlocks the key in memory, then decrypts
-// the file. Unprotected keys are rejected with a warning.
+// decrypt walks the user through selecting an .age file. A file locked
+// with a password asks for the password; otherwise the user selects a
+// passphrase-protected .priv key, which is unlocked in memory. Unprotected
+// keys are rejected with a warning.
 func decrypt(reader *bufio.Reader) {
 	// List all .age files in the current directory as decryption candidates
 	ageFiles, err := core.ListFiles(".", func(name string) bool {
@@ -511,6 +525,16 @@ func decrypt(reader *bufio.Reader) {
 	// Validate the selected file exists and is within size limits
 	if _, err := core.CheckFileSize(inputPath); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	}
+
+	// The file itself says whether it needs a password or a key
+	switch method, err := core.FileLockMethod(inputPath); {
+	case err != nil:
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return
+	case method == core.LockedWithPassword:
+		decryptWithPassword(reader, inputPath)
 		return
 	}
 
@@ -546,39 +570,10 @@ func decrypt(reader *bufio.Reader) {
 		return
 	}
 
-	// Prompt for the passphrase with limited attempts. The private key is
-	// unlocked entirely in memory and never written to disk.
-	var identity age.Identity
-	for attempt := 1; attempt <= core.MaxPassAttempts; attempt++ {
-		fmt.Printf("\nEnter passphrase for private key (attempt %d/%d): ", attempt, core.MaxPassAttempts)
-		passBytes, err := term.ReadPassword(int(syscall.Stdin))
-		fmt.Println()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "Error reading passphrase.")
-			return
-		}
-
-		// Attempt to unlock the key, then clear the passphrase from memory
-		identity, err = core.UnlockIdentity(keyPath, string(passBytes))
-		core.ClearBytes(passBytes)
-
-		if err == nil {
-			break
-		}
-
-		// Only a wrong passphrase is worth retrying; any other error means
-		// the key file itself can't be used
-		if !errors.Is(err, core.ErrWrongPassphrase) {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			return
-		}
-
-		if attempt < core.MaxPassAttempts {
-			fmt.Fprintln(os.Stderr, "Incorrect passphrase, try again.")
-		} else {
-			fmt.Fprintln(os.Stderr, "Maximum passphrase attempts exceeded.")
-			return
-		}
+	// Unlock the key in memory, with limited passphrase attempts
+	identity, ok := unlockKeyWithAttempts(keyPath)
+	if !ok {
+		return
 	}
 
 	// Check if the output file already exists and confirm overwrite
@@ -598,6 +593,40 @@ func decrypt(reader *bufio.Reader) {
 	printWarnings(auditFor(filepath.Dir(outputPath)).RecordDecrypt(time.Now(), inputPath, outputPath, keyFile, nicks[keyFile]))
 }
 
+// unlockKeyWithAttempts asks for the passphrase of the private key at
+// keyPath, allowing core.MaxPassAttempts tries, and unlocks the key
+// entirely in memory; it is never written to disk. Returns false if the
+// key couldn't be unlocked (the reason has been printed).
+func unlockKeyWithAttempts(keyPath string) (age.Identity, bool) {
+	for attempt := 1; attempt <= core.MaxPassAttempts; attempt++ {
+		fmt.Printf("\nEnter passphrase for private key (attempt %d/%d): ", attempt, core.MaxPassAttempts)
+		passBytes, err := readSecret()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "Error reading passphrase.")
+			return nil, false
+		}
+
+		// Attempt to unlock the key, then clear the passphrase from memory
+		identity, err := core.UnlockIdentity(keyPath, string(passBytes))
+		core.ClearBytes(passBytes)
+		if err == nil {
+			return identity, true
+		}
+
+		// Only a wrong passphrase is worth retrying; any other error means
+		// the key file itself can't be used
+		if !errors.Is(err, core.ErrWrongPassphrase) {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return nil, false
+		}
+		if attempt < core.MaxPassAttempts {
+			fmt.Fprintln(os.Stderr, "Incorrect passphrase, try again.")
+		}
+	}
+	fmt.Fprintln(os.Stderr, "Maximum passphrase attempts exceeded.")
+	return nil, false
+}
+
 // ─── Key Management ─────────────────────────────────────────────────────────
 
 // keyManagement presents a submenu for key-related operations and loops
@@ -612,8 +641,9 @@ func keyManagement(reader *bufio.Reader) {
 		fmt.Println("5) Nickname a Key")
 		fmt.Println("6) Import a Public Key (someone else's)")
 		fmt.Println("7) Export / Share a Public Key")
-		fmt.Println("8) Back")
-		fmt.Print("\nChoose [1-8]: ")
+		fmt.Println("8) Saved Passwords")
+		fmt.Println("9) Back")
+		fmt.Print("\nChoose [1-9]: ")
 
 		switch strings.TrimSpace(readLine(reader)) {
 		case "1":
@@ -631,6 +661,8 @@ func keyManagement(reader *bufio.Reader) {
 		case "7":
 			exportPublicKey(reader)
 		case "8":
+			savedPasswords(reader)
+		case "9":
 			return
 		default:
 			fmt.Fprintln(os.Stderr, "Invalid choice, try again.")
@@ -1061,16 +1093,14 @@ func promptSelectionOrBack(reader *bufio.Reader, prompt string, n int) (int, boo
 // passphrases are allowed with a warning.
 func promptPassphraseConfirm(prompt string) (string, error) {
 	fmt.Printf("\n%s (min %d chars): ", prompt, core.MinPassphraseLen)
-	pass1, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
+	pass1, err := readSecret()
 	if err != nil {
 		return "", fmt.Errorf("could not read passphrase")
 	}
 	defer core.ClearBytes(pass1)
 
 	fmt.Printf("Confirm passphrase: ")
-	pass2, err := term.ReadPassword(int(syscall.Stdin))
-	fmt.Println()
+	pass2, err := readSecret()
 	if err != nil {
 		return "", fmt.Errorf("could not read passphrase")
 	}

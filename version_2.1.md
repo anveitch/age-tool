@@ -120,16 +120,24 @@ Opening a record returns the encrypted copy, so editing the readable part can't 
 
 ## Milestone 4: CLI
 
-- [ ] **Encrypt:** "Encrypt for: 1) a key 2) a password". For a password:
+- [x] **Encrypt:** "Encrypt for: 1) a key 2) a password". For a password:
   - offer a suggested password or "type your own"
   - type it twice, hidden
   - check it against the rule
-- [ ] **Keep a record?** (D5), with the same wording as the app:
+- [x] **Keep a record?** (D5), with the same wording as the app:
   1. Save it, protected by my key (default)
   2. Don't save it. The password is shown once, to write down.
-- [ ] **Decrypt:** detect a password file, skip the key list, and ask for the password.
-- [ ] **Key Management → Saved passwords:** list, show (asks for the key passphrase), delete.
-- [ ] Tests, including a scripted session.
+- [x] **Decrypt:** detect a password file, skip the key list, and ask for the password.
+- [x] **Key Management → Saved passwords:** list, show (asks for the key passphrase), delete.
+- [x] Tests, including a scripted session.
+
+**Result:** complete. The new [passwords.go](passwords.go) holds the CLI's password flows:
+- **Encrypt** asks "Encrypt for: 1) A key 2) A password". The password path shows the rule, then offers a suggestion (accept, or ask for another) or "type my own", hidden and typed twice, with 3 tries against the rule. It reminds the user to send the password separately, then asks the record question. Enter saves; without an own key, the password is shown once instead.
+- **Decrypt** detects password files before listing keys, mentions a saved record for the file, confirms any overwrite, then allows 3 password tries.
+- **Key Management:** "8) Saved Passwords" (list, show with a key passphrase, delete with confirmation); "Back" moved to 9. Items 1–7 are unchanged.
+- **Shared code:** the key passphrase loop is now one helper, `unlockKeyWithAttempts`, used by Decrypt and Saved Passwords. Hidden input goes through `readSecret`, so tests can supply it.
+
+**Tests:** 6 CLI tests drive the real menus: own password with a rule failure, suggested password plus record plus show, declining the record, three wrong passwords, deleting a record, and the unchanged key path. A real-terminal session driven by expect covered the same journey: `Summer26!` refused, the record saved, a wrong then a right password, the record shown. The CLI still builds static for all 5 platforms; gosec and govulncheck are clean.
 
 ## Milestone 5: Desktop app
 
@@ -192,7 +200,7 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 | 1. Quit button | ✅ Complete |
 | 2. Password encryption in the core | ✅ Complete |
 | 3. Saved password records | ✅ Complete |
-| 4. CLI | Next |
-| 5. Desktop app | Not started |
+| 4. CLI | ✅ Complete |
+| 5. Desktop app | Next |
 | 6. Docs and 2.1.0 release | Not started |
 | 7. Mac desktop app | Waiting for the Apple Developer account |
