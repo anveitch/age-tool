@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Icon for .age encrypted files: a plain page with the age-tool icon as
+     a badge in the corner. No text, so it looks the same whatever fonts
+     the system has. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <!-- Page with a folded corner -->
+  <path d="M56 20 H160 L208 68 V224 A12 12 0 0 1 196 236 H56 A12 12 0 0 1 44 224 V32 A12 12 0 0 1 56 20 Z" fill="#f1f4f8" stroke="#9aa5b5" stroke-width="6"/>
+  <path d="M160 20 V56 A12 12 0 0 0 172 68 H208 Z" fill="#cfd6e0"/>
+  <!-- Text lines -->
+  <rect x="72" y="92" width="112" height="10" rx="5" fill="#b8c1ce"/>
+  <rect x="72" y="118" width="112" height="10" rx="5" fill="#b8c1ce"/>
+  <rect x="72" y="144" width="80" height="10" rx="5" fill="#b8c1ce"/>
+  <!-- Badge: the app icon, scaled to 132 px in the bottom-right corner -->
+  <g transform="translate(112 124) scale(0.515625)">
+    <rect x="10" y="10" width="236" height="236" rx="54" fill="#1e293b" stroke="#64748b" stroke-width="8"/>
+    <path d="M88 112 V88 A40 40 0 0 1 168 88 V112" fill="none" stroke="#ffb347" stroke-width="22" stroke-linecap="round"/>
+    <rect x="58" y="104" width="140" height="116" rx="22" fill="#f8fafc"/>
+    <circle cx="122" cy="164" r="26" fill="none" stroke="#1e293b" stroke-width="16"/>
+    <rect x="140" y="134" width="16" height="58" rx="7" fill="#1e293b"/>
+  </g>
+</svg>

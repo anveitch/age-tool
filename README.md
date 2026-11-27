@@ -1,66 +1,105 @@
 # age-tool
 
-A command line AGE encryption management application for encrypting and decrypting files, generating and managing key pairs, and organising keys with nicknames. Built with the [filippo.io/age](https://filippo.io/age) Go library.
+Encrypt and decrypt files with [age](https://age-encryption.org) keys, generate and manage key pairs, and keep an audit trail. Built with the [filippo.io/age](https://filippo.io/age) Go library.
 
-## Installation
+age-tool comes in two forms, sharing the same keys and the same security rules:
 
-### Option 1 -- Homebrew (macOS)
+- **Desktop app** for Linux: no terminal needed, with right-click **Encrypt** / **Decrypt** in the file manager. Aimed at non-technical users.
+- **Command-line tool** for macOS, Linux and Windows: an interactive menu in the terminal.
+
+Upgrading from 1.x? Keys now live in a key store instead of the current folder. See [Upgrading to 2.0](docs/upgrading-to-2.0.md).
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Desktop app guide](#desktop-app-guide)
+- [Command-line guide](#command-line-guide)
+- [Where files are kept](#where-files-are-kept)
+- [Building from source](#building-from-source)
+- [Security](#security)
+- [License](#license)
+
+## Quick start
+
+### Desktop app (Linux)
+
+1. Download **`age-tool-linux-x64.AppImage`** (most PCs) or **`age-tool-linux-arm64.AppImage`** (ARM) from the [latest release](https://github.com/anveitch/age-tool/releases/latest).
+2. Make it executable: in Files, right-click → **Properties** → **Executable as Program**, or run `chmod +x age-tool-linux-x64.AppImage`.
+3. Double-click it, and choose **Add to desktop** when asked.
+4. Choose **My keys** → **Create a key**, then encrypt and decrypt from the home screen or by right-clicking files.
+
+Needs Ubuntu 22.04 or newer, or a similar distribution (glibc 2.34+: Debian 12, Linux Mint 21, Fedora 36 and later). The [user guide](docs/user-guide.md) walks through everything with screenshots.
+
+### Command line
+
+**Homebrew (macOS):**
 
     brew tap anveitch/age-tool
     brew install age-tool
 
-### Option 2 -- Manual Installation
-
-Download the appropriate binary for your platform from the [Releases](https://github.com/anveitch/age-tool/releases) page on GitHub, make it executable, and move it to your PATH:
+**Manual:** download the binary for your platform from the [latest release](https://github.com/anveitch/age-tool/releases/latest), make it executable and put it on your PATH:
 
     chmod +x age-tool-macos-arm64
     mv age-tool-macos-arm64 /usr/local/bin/age-tool
 
-Regardless of installation method, [age](https://github.com/FiloSottile/age) must be installed on the target system if you plan to generate or manage keys manually outside the application.
+| Platform | Binary |
+|---|---|
+| macOS Apple Silicon | `age-tool-macos-arm64` |
+| macOS Intel | `age-tool-macos-intel` |
+| Windows x64 | `age-tool-windows-x64.exe` |
+| Linux x64 | `age-tool-linux-x64` |
+| Linux ARM64 | `age-tool-linux-arm64` |
 
-## Requirements
+Then run `age-tool` in the folder holding the files you want to encrypt or decrypt, and choose **Key Management** → **Generate New Key Pair** to make your first key.
 
-- Public keys must have a `.pub` extension
-- Private keys must have a `.priv` extension and be passphrase-protected
-- Key files and target files should be in the same directory as the application
+The command-line binaries are static and self-contained, with nothing else to install.
 
-## Building from Source
+### Verifying downloads
 
-Building from source requires [Go](https://go.dev/) 1.26.11 or later. If you have an older Go (1.21 or later) installed, it will automatically download the required toolchain the first time you build.
+Every release includes `SHA256SUMS`, listing the SHA256 hash of every file. Download it into the same folder as your file, then run:
 
-To build for your current platform:
+    sha256sum -c SHA256SUMS --ignore-missing      # Linux
+    shasum -a 256 -c SHA256SUMS --ignore-missing  # macOS
 
-    go build -o age-tool .
+Each downloaded file should report `OK`.
 
-To cross-compile for all supported platforms at once, use the included build script:
+## Desktop app guide
 
-    ./build.sh
+The [user guide](docs/user-guide.md) is written for non-technical users and covers installing, creating a key, encrypting, decrypting, sharing your public key, adding contacts, backing up keys and troubleshooting.
 
-This creates a `builds/` directory containing binaries for every supported target. Release builds are static (CGO disabled), with local file paths trimmed and debug symbols stripped.
+<img src="docs/images/home.png" alt="The age-tool desktop app home screen" width="520">
 
-To run the test suite:
+### Desktop integration
 
-    go test ./...
+On first start from an AppImage, the app offers to add itself to the desktop, for the current user only. **Desktop integration** on the home screen installs, updates or removes it later. It adds:
 
-### Platform Support
+- an app menu entry, with the app icon
+- a `.age` file type with its own icon, opened by age-tool on double-click
+- right-click **Encrypt with age-tool** / **Decrypt with age-tool** entries in Files (GNOME, under **Scripts**), Dolphin (KDE), Nemo (Cinnamon) and Thunar (XFCE)
 
-| Platform              | Binary name                 |
-|-----------------------|-----------------------------|
-| macOS Apple Silicon   | `age-tool-macos-arm64`      |
-| macOS Intel           | `age-tool-macos-intel`      |
-| Windows x64           | `age-tool-windows-x64.exe`  |
-| Linux x64             | `age-tool-linux-x64`        |
-| Linux ARM64           | `age-tool-linux-arm64`      |
+The entries point at the AppImage's current location. If the AppImage is moved or replaced by a download elsewhere, the app notices and offers to update them. Everything is written under `~/.local/share` (plus Thunar's `~/.config/Thunar/uca.xml`, where existing custom actions are kept), and **Remove** takes it all away again.
 
-The compiled binaries are self-contained and do not require Go to be installed on the target machine. However, if you plan to generate keys manually outside the application, the [age CLI](https://github.com/FiloSottile/age) must be installed on the target system. The built-in key generation feature has no external dependencies.
+### Command-line options
 
-## Usage
+The desktop app also takes arguments, which the menu entries use:
 
-Run the application from the directory containing your key files and target files:
+    age-tool-linux-x64.AppImage                     Open age-tool
+    age-tool-linux-x64.AppImage encrypt <file>...   Encrypt files
+    age-tool-linux-x64.AppImage decrypt <file>...   Decrypt .age files
+    age-tool-linux-x64.AppImage <file>...           Decrypt .age files, or encrypt other files
+    age-tool-linux-x64.AppImage --install-desktop   Add the desktop integration
+    age-tool-linux-x64.AppImage --remove-desktop    Remove it again
+    age-tool-linux-x64.AppImage --version           Show the version
 
-    ./age-tool
+## Command-line guide
 
-You will be presented with the main menu:
+### Usage
+
+Run age-tool from the folder containing the files to encrypt or decrypt:
+
+    age-tool
+
+Keys come from your [key store](#where-files-are-kept), so age-tool works from any folder.
 
     1) Encrypt
     2) Decrypt
@@ -69,45 +108,44 @@ You will be presented with the main menu:
 
 Type `q` or `Q` at any time to quit instead of selecting option 4.
 
-On startup, the application performs a health check and warns you if any unencrypted private keys are found in the current directory.
+Options:
 
-## Encryption
+    --keys <folder>  Use the key files in <folder> instead of your key store
+                     (--keys . gives the age-tool 1.x behaviour)
+    --version        Show the version
+    --help           Show this help, including your key store and log paths
 
-1. The tool lists all files in the current directory (excluding `.age` files) for selection
-2. The tool lists all `.pub` key files in the current directory for selection
-   - Keys with nicknames are displayed as `Nickname (filename.pub)`
-   - Keys without nicknames are displayed as `filename.pub`
-3. The selected file is encrypted using the chosen public key
-4. The output file is named with `.age` appended to the original filename
-   - Example: `document.txt` becomes `document.txt.age`
+### Encryption
 
-## Decryption
+1. The tool lists all files in the current folder (excluding `.age` files) for selection.
+2. The tool lists the public keys in your key store: your own and your contacts'.
+   - Keys with nicknames are displayed as `Nickname (filename.pub)`.
+   - Keys without nicknames are displayed as `filename.pub`.
+3. The selected file is encrypted for the chosen public key.
+4. The output has `.age` appended to the original file name. For example, `document.txt` becomes `document.txt.age`.
 
-1. The tool lists all `.age` files in the current directory for selection
-2. The tool lists all `.priv` key files in the current directory for selection
-   - Keys with nicknames are displayed as `Nickname (filename.priv)`
-   - Keys without nicknames are displayed as `filename.priv`
-3. The selected private key must be passphrase-protected. Unencrypted private keys are rejected with a warning
-4. You will be prompted to enter the passphrase for the selected key (input is hidden)
-5. The file is decrypted and the output has the `.age` extension stripped
-   - Example: `document.txt.age` becomes `document.txt`
+### Decryption
 
-During decryption, the private key is unlocked entirely in memory. The unencrypted private key is never written to disk, and its in-memory copy is zeroed once it has been parsed.
+1. The tool lists all `.age` files in the current folder for selection.
+2. The tool lists the private keys (`.priv`) in your key store.
+3. The selected private key must be passphrase-protected. Unprotected private keys are rejected with a warning.
+4. Enter the passphrase for the key (input is hidden). You have 3 attempts.
+5. The file is decrypted, and the output has the `.age` extension removed. For example, `document.txt.age` becomes `document.txt`.
 
-## Key Management
+The private key is unlocked entirely in memory. It is never written to disk unprotected, and its in-memory copy is zeroed once parsed.
 
-Select option 3 from the main menu to access the key management submenu:
+### Key Management
 
     1) List Keys
     2) Generate New Key Pair
     3) Encrypt a Private Key
     4) Delete a Key Pair
     5) Nickname a Key
-    6) Back
+    6) Import a Public Key (someone else's)
+    7) Export / Share a Public Key
+    8) Back
 
-### List Keys
-
-Scans the current directory for `.pub` and `.priv` files and displays them grouped by base name. Each private key shows its protection status:
+**List Keys** shows the key store's keys grouped by name. Each private key shows its protection status:
 
     key1
       Public:  Work Laptop (key1.pub)
@@ -116,181 +154,167 @@ Scans the current directory for `.pub` and `.priv` files and displays them group
       Public:  key2.pub
       Private: key2.priv [OPEN]
 
-- `[ENCRYPTED]` -- the private key is passphrase-protected and ready to use
-- `[OPEN]` -- the private key is unencrypted and will be rejected during decryption
+- `[ENCRYPTED]`: the private key is passphrase-protected and ready to use.
+- `[OPEN]`: the private key is unprotected and will be rejected during decryption.
 
-### Generate New Key Pair
+**Generate New Key Pair** creates a new age X25519 key pair with mandatory passphrase protection:
 
-Creates a new AGE X25519 key pair with mandatory passphrase protection:
+1. Prompts for a name (e.g. `work` creates `work.pub` and `work.priv`).
+2. Prompts for a passphrase of at least 12 characters, and confirmation (input is hidden).
+3. Generates the key pair in memory.
+4. Writes the public key to `name.pub`.
+5. Encrypts the private key with the passphrase and writes it to `name.priv`.
 
-1. Prompts for a key pair name (e.g. `work` creates `work.pub` and `work.priv`)
-2. Prompts for a passphrase and confirmation (input is hidden)
-3. Generates the key pair in memory
-4. Writes the public key to `name.pub`
-5. Encrypts the private key with the passphrase and writes it to `name.priv`
+The unprotected private key is never written to disk.
 
-The unencrypted private key material is never written to disk at any point.
+**Encrypt a Private Key** protects an existing unprotected `.priv` file (for example, one made with `age-keygen`) with a passphrase, in place.
 
-### Encrypt a Private Key
+**Delete a Key Pair** deletes a key's `.pub` and `.priv` files (or whichever exists) after confirmation, and removes their nicknames.
 
-For existing unencrypted `.priv` files that need to be secured:
-
-1. Scans for `.priv` files that are not yet passphrase-protected
-2. If none are found, displays a message and returns to the menu
-3. Presents the unencrypted keys for selection
-4. Prompts for a passphrase and confirmation
-5. Encrypts the private key in place, overwriting the file
-
-### Nickname a Key
-
-Assigns a human-readable nickname to any `.pub` or `.priv` file:
-
-1. Lists all key files with their current nickname (if set)
-2. Prompts for the key to nickname and the new nickname
-3. Saves the nickname to `keys.json`
-
-Each key is nicknamed independently. A `.pub` and its matching `.priv` can have different nicknames, or one can have a nickname while the other does not. Nicknames are displayed throughout the application wherever keys are listed or selected.
-
-Nicknames are stored in `keys.json` in the current directory:
+**Nickname a Key** gives any `.pub` or `.priv` file a readable nickname, shown wherever keys are listed. Each file is nicknamed separately. Nicknames are stored in `keys.json` beside the keys:
 
 ```json
 {
   "work.priv": "Work Laptop",
-  "work.pub": "Work Public",
-  "personal.priv": "Personal"
+  "work.pub": "Work Public"
 }
 ```
 
-### Delete a Key Pair
+**Import a Public Key** adds someone else's public key (a contact), so you can encrypt files for them. Load it from a `.pub` file, or paste the `age1…` string. A pasted private key is refused without being echoed back.
 
-Removes key files from the current directory:
+**Export / Share a Public Key** shows a public key's `age1…` string to send to others, and can save a copy as a file. It never overwrites an existing file.
 
-1. Lists all key pairs grouped by base name
-2. Prompts for selection and confirmation
-3. Deletes both the `.pub` and `.priv` files (or whichever exists)
-4. Removes any associated nicknames from `keys.json`
+### Startup checks
 
-### Startup Health Check
+On every launch, the tool:
 
-On every launch, the application scans the current directory for `.priv` files and warns about any that are not passphrase-protected:
+- offers to import 1.x key files found in the current folder into the key store (see [Upgrading to 2.0](docs/upgrading-to-2.0.md))
+- warns about unprotected private keys in the key folder:
 
-    !! WARNING: Unencrypted private key(s) detected !!
-       - key2.priv
-    These keys are NOT passphrase-protected and cannot be used for decryption.
-    Use Key Management > Encrypt a Private Key to secure them.
+      !! WARNING: Unencrypted private key(s) detected !!
+         - key2.priv
+      These keys are NOT passphrase-protected and cannot be used for decryption.
+      Use Key Management > Encrypt a Private Key to secure them.
 
-## Transaction Logging
+- offers to fix private keys that other users can read (to `0600`)
+- offers to remove leftover partial output files in the current folder from a session that was killed mid-operation
 
-age-tool automatically creates an audit trail for all encryption, decryption, and key creation operations.
+### Transaction logging
 
-### Log Files
+Every encryption, decryption and key creation is logged, by the command-line tool and the desktop app alike, in two places:
 
-Two types of log are maintained:
+- **Central log**, in your [log folder](#where-files-are-kept), recording full file paths. The desktop app's **View activity** reads it.
+- **Local log** in the folder of the file that was encrypted or decrypted (for key creation, the key folder), in the same format as 1.x:
+  - `age-tool.log`: one human-readable line per transaction
+  - `logs/`: one JSON receipt per transaction, named by type and time (e.g. `encrypt-2026-04-09-143022.json`)
 
-- **`age-tool.log`** -- a running human-readable log file in the current directory with one line per transaction, summarising the key details at a glance
-- **`logs/` directory** -- individual JSON receipt files created for each transaction, named by type and timestamp (e.g. `encrypt-2026-04-09-143022.json`)
+What is recorded:
 
-Both are created automatically on first use.
+- **Encrypt:** date and time; source file with MD5 and SHA256 hashes; output file (`.age`) with hashes; public key file and nickname.
+- **Decrypt:** date and time; source file (`.age`) with hashes; output file with hashes; private key file and nickname.
+- **Key creation:** date and time; key name; public and private key files with hashes; a note that the private key is passphrase-protected.
 
-### What Is Recorded
+Logs contain no passphrases or key material.
 
-**Encrypt transactions:**
-- Date and time of the operation
-- Source filename with MD5 and SHA256 hashes
-- Output filename (`.age`) with MD5 and SHA256 hashes
-- Public key filename and nickname (if set)
+### Manual key generation
 
-**Decrypt transactions:**
-- Date and time of the operation
-- Source filename (`.age`) with MD5 and SHA256 hashes
-- Output filename with MD5 and SHA256 hashes
-- Private key filename and nickname (if set)
+To make keys with the [age](https://github.com/FiloSottile/age) tools instead:
 
-**Key creation transactions:**
-- Date and time of the operation
-- Key pair name
-- Public key filename with MD5 and SHA256 hashes
-- Private key filename with MD5 and SHA256 hashes
-- Note that the private key is passphrase-encrypted
+    age-keygen -o key1.txt                 # make a key pair
+    age-keygen -y key1.txt > key1.pub      # extract the public key
+    age -p -o key1.priv key1.txt           # protect the private key with a passphrase
+    rm key1.txt                            # remove the unprotected copy
 
-### Version Control
+Then copy `key1.pub` and `key1.priv` into your key store (or use `--keys` with their folder). The built-in **Generate New Key Pair** is safer, because it never writes an unprotected key to disk.
 
-Both `age-tool.log` and the `logs/` directory are excluded from version control via `.gitignore`. They contain operational metadata only and no key material.
+## Where files are kept
 
-## Manual Key Generation
+| Data | Linux | macOS | Windows |
+|---|---|---|---|
+| Key store (`.pub`, `.priv`, `keys.json`) | `~/.local/share/age-tool/keys/` | `~/Library/Application Support/age-tool/keys/` | `%AppData%\age-tool\keys\` |
+| Settings | `~/.config/age-tool/` | `~/Library/Application Support/age-tool/` | `%AppData%\age-tool\` |
+| Central audit log | `~/.local/state/age-tool/` | `~/Library/Logs/age-tool/` | `%LocalAppData%\age-tool\logs\` |
 
-If you prefer to generate keys outside the application:
+On Linux, `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` are used when set. The key store folder is owner-only (`0700`), and so are the files in it (`0600`).
 
-1. Generate a new AGE key pair:
+**Back up your key store.** Files encrypted for your key can only be decrypted with your private key and its passphrase.
 
-       age-keygen -o key1.txt
+## Building from source
 
-2. Extract the public key to a `.pub` file:
+Requires [Go](https://go.dev/) 1.26.11 or later. An older Go (1.21 or later) downloads the required toolchain automatically.
 
-       age-keygen -y key1.txt > key1.pub
+Command-line tool for your current platform:
 
-3. Encrypt the private key with a passphrase:
+    go build -o age-tool .
 
-       age -p -o key1.priv key1.txt
+Desktop app for your current platform (needs a C compiler and, on Linux, the OpenGL, X11 and Wayland development packages; see [packaging/linux/Dockerfile](packaging/linux/Dockerfile) for the list):
 
-   You will be prompted to enter and confirm a passphrase.
+    go build -o age-tool-gui ./cmd/age-tool-gui
 
-4. Remove the unencrypted private key:
+Everything for release:
 
-       rm key1.txt
+    ./build.sh              # CLI for all 5 platforms, both AppImages, SHA256SUMS
+    ./build.sh --cli-only   # CLI only, without Docker
 
-You should now have `key1.pub` (public key) and `key1.priv` (passphrase-protected private key).
+This writes to `builds/`. CLI builds are static (CGO disabled), with local paths trimmed and debug symbols stripped. The AppImages are built in Docker on Ubuntu 22.04 by [packaging/linux/build-gui.sh](packaging/linux/build-gui.sh), so Docker must be running. The same source always gives the same AppImage.
+
+Tests:
+
+    go test ./...
+
+`release.sh` makes a release: it runs the vulnerability scans, sets the version, builds everything, tags, and publishes the GitHub release. Versions like `2.0.0-rc.1` are published as pre-releases, and Homebrew is only updated for full releases.
 
 ## Security
 
-age-tool includes multiple layers of security hardening to protect your keys and data.
+The desktop app and the command-line tool share one core package, so they enforce the same rules.
 
-### Input Sanitisation
+### Input sanitisation
 
-- **Path traversal prevention.** Filenames containing `../`, absolute paths, or path separators are rejected. All file operations are restricted to the current working directory.
-- **File extension validation.** Key files are validated to ensure they contain the expected AGE key format before use.
-- **Input length limits.** User text inputs (key names, nicknames) are limited to 255 characters to prevent buffer issues.
-- **Whitespace stripping.** All user inputs are trimmed of leading and trailing whitespace before processing.
+- **Path traversal prevention.** Key names and file names containing `../`, absolute paths or path separators are rejected.
+- **Key validation.** Public keys are parsed and validated as age public keys before use, and private keys are checked to be passphrase-protected before decryption is attempted.
+- **Input length limits.** Names and nicknames are limited to 255 characters.
+- **Whitespace stripping.** Inputs are trimmed of leading and trailing whitespace.
 
-### File Handling
+### File handling
 
-- **File size limits.** Files larger than 2 GB are rejected before processing to prevent handling unexpectedly large files.
-- **Restrictive output permissions.** All output files (encrypted files, decrypted files, key files, `keys.json`, log files) are written with owner-only permissions (`0600`).
-- **Atomic output.** Encrypted and decrypted output is written to a hidden temporary file (`.age-tool-partial-*`) and only renamed to its final name once the operation has fully succeeded. A corrupted or truncated `.age` file therefore never leaves partial plaintext behind, and never damages an existing file of the same name.
-- **Interrupt handling.** On Ctrl+C, SIGTERM, or SIGHUP the terminal is restored (so an interrupted passphrase prompt doesn't leave input hidden) and any in-progress partial output file is removed.
-- **Overwrite confirmation.** If an output file already exists, the user is prompted for confirmation before overwriting.
-- **Working directory check.** On startup, the application verifies the current directory is accessible and writable before starting any operation.
+- **File size limit.** Files larger than 2 GB are rejected before processing.
+- **Restrictive permissions.** Output files, key files, `keys.json` and logs are written owner-only (`0600`), and age-tool's folders `0700`.
+- **Atomic output.** Output is written to a hidden temporary file (`.age-tool-partial-*`) and only renamed to its final name once the operation succeeds. A corrupt or truncated `.age` file never leaves partial plaintext behind, and never damages an existing file of the same name.
+- **Interrupt handling.** If interrupted (Ctrl+C, SIGTERM, SIGHUP, or closing the app window mid-operation), any partial output is removed. The command-line tool also restores the terminal, so an interrupted passphrase prompt doesn't leave input hidden.
+- **Overwrite confirmation.** If an output file already exists, age-tool asks before replacing it.
 
-### Passphrase Security
+### Passphrase security
 
-- **Minimum length enforced.** Passphrases must be at least 12 characters when creating or encrypting keys.
-- **Weak passphrase detection.** Passphrases using all the same character, only digits, or common patterns are flagged with a warning.
-- **Attempt limit.** During decryption, a maximum of 3 passphrase attempts are allowed before returning to the main menu.
-- **Memory clearing.** Passphrase byte arrays and the decrypted private key text are zeroed after use to reduce the window of exposure in memory.
+- **Minimum length.** Passphrases must be at least 12 characters when creating or protecting keys.
+- **Weak passphrase detection.** Passphrases of one repeated character, only digits, or common patterns are flagged. The desktop app shows a strength meter.
+- **Attempt limit.** Decryption allows 3 passphrase attempts.
+- **Memory clearing.** Passphrases and the decrypted private key text are zeroed after use.
 
-### Private Key Handling
+### Private key handling
 
-- **In-memory unlocking.** Passphrase-protected private keys are decrypted and parsed in memory only. No unencrypted private key material is written to disk during key generation, key encryption, or file decryption.
-- **Leftover detection.** On startup, the application scans for temporary files left by a session that was killed mid-operation and prompts the user to delete them: partial output files (`.age-tool-partial-*`), and temporary decrypted key files (`.tmpkey-*`) written during decryption by versions up to v1.2.0.
+- **Passphrase-protected keys only.** Unprotected private keys are never used for decryption, and are flagged at startup.
+- **In-memory unlocking.** No unprotected private key material is written to disk during key generation, key protection or decryption.
+- **Never shared.** Sharing exports only the public key. A private key pasted as a contact is refused without being shown.
+- **Permission checks.** Private keys readable by other users are found at startup. The command-line tool offers to fix them; the desktop app fixes them.
 
-### Key File Security
+### Audit log security
 
-- **Key validation.** Public key files are parsed and validated as valid AGE public keys before use. Private key files are verified to be AGE-encrypted before decryption is attempted.
-- **Permission checks.** On startup, all `.priv` files are checked for overly permissive permissions (group or world readable). The user is offered the option to automatically fix them to owner-only (`0600`).
+- **Restrictive permissions.** Logs and receipts are owner-only (`0600`), in `0700` folders.
+- **No sensitive data.** Passphrases and key material are never logged. Logs contain only file names, paths, hashes, timestamps and nicknames.
 
-### Audit Log Security
+### Release security
 
-- **Restrictive permissions.** Both `age-tool.log` and individual receipt files in `logs/` are written with owner-only permissions (`0600`). The `logs/` directory itself is created with `0700` permissions.
-- **No sensitive data logged.** Passphrases and key material are never written to any log or receipt file. Logs contain only filenames, hashes, timestamps, and nicknames.
+- **Vulnerability scanning.** Releases are blocked on any `govulncheck` finding, for the code as built and for every required module.
+- **Checksums.** Every release file is listed in `SHA256SUMS`.
+- **Pinned build inputs.** The AppImage build verifies the Go download and the AppImage runtime against fixed hashes.
 
-## Security Best Practices
+### Best practices
 
-- **Never commit `.priv` files to version control.** Even passphrase-protected private keys should not be stored in repositories. Add `*.priv` to your `.gitignore`.
-- **Always use passphrase-protected private keys.** The tool enforces this by rejecting unencrypted `.priv` files during decryption and warning about them on startup.
-- **Use Generate New Key Pair for the safest workflow.** The built-in key generation never writes unencrypted key material to disk.
-- **`.pub` files are safe to share.** Public keys can be freely distributed to anyone who needs to encrypt files for you.
-- **`.age` files are safe to share.** Encrypted files can only be decrypted by the holder of the corresponding private key.
-- **`keys.json` contains only nicknames, not key material.** It is safe to keep but is excluded from version control by default via `.gitignore`.
+- **Never commit `.priv` files to version control**, even protected ones.
+- **Use the built-in key generation**, which never writes unprotected key material to disk.
+- **Public keys (`.pub`) and encrypted files (`.age`) are safe to share.** Only the matching private key can decrypt.
+- **Back up your key store.** A lost private key or forgotten passphrase can't be recovered.
+- **`keys.json` contains only nicknames**, not key material.
 
 ## License
 
