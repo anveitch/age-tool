@@ -10,7 +10,7 @@ age-tool 2.0 adds a desktop app for Linux, and changes where the command-line to
 | Nicknames (`keys.json`) | Current folder | Beside the keys, in the key store |
 | Files to encrypt or decrypt | Current folder | Current folder (unchanged) |
 | Audit log | `age-tool.log` and `logs/` in the current folder | The same local log in the folder of the file, **plus** a central log (see below) |
-| Key Management menu | 6 items, "Back" is 6 | 8 items: adds **Import a Public Key** (6) and **Export / Share a Public Key** (7); "Back" is now 8. Items 1–5 are unchanged. |
+| Key Management menu | 6 items, "Back" is 6 | 8 items: adds **Import a Public Key** (6) and **Export / Share a Public Key** (7); "Back" is now 8. Items 1–5 are unchanged. (2.1 adds **Saved Passwords** as 8, and "Back" becomes 9.) |
 | Desktop app | None | `age-tool-linux-x64.AppImage` / `age-tool-linux-arm64.AppImage` for Linux. It uses the same key store. |
 
 ### Where things are kept

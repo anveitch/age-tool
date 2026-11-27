@@ -1,6 +1,6 @@
 # age-tool
 
-Encrypt and decrypt files with [age](https://age-encryption.org) keys, generate and manage key pairs, and keep an audit trail. Built with the [filippo.io/age](https://filippo.io/age) Go library.
+Encrypt and decrypt files with [age](https://age-encryption.org) keys or passwords, generate and manage key pairs, and keep an audit trail. Built with the [filippo.io/age](https://filippo.io/age) Go library.
 
 age-tool comes in two forms, sharing the same keys and the same security rules:
 
@@ -65,7 +65,7 @@ Each downloaded file should report `OK`.
 
 ## Desktop app guide
 
-The [user guide](docs/user-guide.md) is written for non-technical users and covers installing, creating a key, encrypting, decrypting, sharing your public key, adding contacts, backing up keys and troubleshooting.
+The [user guide](docs/user-guide.md) is written for non-technical users and covers installing, creating a key, encrypting (with a key or a password), decrypting, saved passwords, sharing your public key, adding contacts, backing up keys and troubleshooting.
 
 <img src="docs/images/home.png" alt="The age-tool desktop app home screen" width="520">
 
@@ -118,15 +118,31 @@ Options:
 ### Encryption
 
 1. The tool lists all files in the current folder (excluding `.age` files) for selection.
-2. The tool lists the public keys in your key store: your own and your contacts'.
+2. Choose **Encrypt for: 1) A key 2) A password**.
+3. For a key, the tool lists the public keys in your key store: your own and your contacts'.
    - Keys with nicknames are displayed as `Nickname (filename.pub)`.
    - Keys without nicknames are displayed as `filename.pub`.
-3. The selected file is encrypted for the chosen public key.
-4. The output has `.age` appended to the original file name. For example, `document.txt` becomes `document.txt.age`.
+4. The selected file is encrypted for the chosen public key, or with the password.
+5. The output has `.age` appended to the original file name. For example, `document.txt` becomes `document.txt.age`.
+
+#### Encrypting with a password
+
+Password-encrypted files are standard age passphrase (scrypt) files, the same as `age -p` makes, and they open with `age -d` too.
+
+1. The tool shows the password rule, and offers a **suggested password** (four random words, a number and a special character, e.g. `kettle-orange-piano-march-47!`; ask for another with `n`) or **type my own** (hidden, typed twice, 3 tries to meet the rule).
+2. After encrypting, it reminds you to send the password separately from the file.
+3. It asks **Keep a record of this password?**
+   - **1) Save it, protected by my key** (the default): see [Saved password records](#saved-password-records).
+   - **2) Don't save it**: the password is shown once, to write down.
+
+   Without a key of your own, no record can be saved, and the password is shown once.
+
+**The rule:** at least 8 characters, including a number and a special character, and not easy to guess. Passwords made from a common word with numbers or symbols added (`Summer26!`, `P@ssword1`), alphabet or keyboard runs, or no letters at all are refused. The rule can be made stricter in the [settings file](#password-rules), never weaker.
 
 ### Decryption
 
 1. The tool lists all `.age` files in the current folder for selection.
+   - If the file was encrypted with a password (the tool reads this from the file), it asks for the password instead, with 3 attempts, and mentions any saved record of it. The steps below are for key files.
 2. The tool lists the private keys (`.priv`) in your key store.
 3. The selected private key must be passphrase-protected. Unprotected private keys are rejected with a warning.
 4. Enter the passphrase for the key (input is hidden). You have 3 attempts.
@@ -143,7 +159,8 @@ The private key is unlocked entirely in memory. It is never written to disk unpr
     5) Nickname a Key
     6) Import a Public Key (someone else's)
     7) Export / Share a Public Key
-    8) Back
+    8) Saved Passwords
+    9) Back
 
 **List Keys** shows the key store's keys grouped by name. Each private key shows its protection status:
 
@@ -184,6 +201,16 @@ The unprotected private key is never written to disk.
 
 **Export / Share a Public Key** shows a public key's `age1…` string to send to others, and can save a copy as a file. It never overwrites an existing file.
 
+**Saved Passwords** lists the saved password records, newest first, and lets you show one (after unlocking one of your keys with its passphrase) or delete one (after confirming). Deleting a record doesn't change the encrypted files.
+
+#### Saved password records
+
+When you encrypt with a password, you can keep a record of it. Each record is one file in the [passwords folder](#where-files-are-kept). It holds:
+- the encrypted files' paths and SHA256 hashes, and the date, readable so records can be listed and matched to files (these are already in the activity log)
+- the password, together with the same files and date, **age-encrypted to all of your own keys** (key pairs with a private half; contacts are never used)
+
+So a saved password is as safe as your private key: it can only be read with one of your keys and its passphrase. **If you forget your key's passphrase, you lose the records too.** A record is never saved unprotected, and the password never appears in any log.
+
 ### Startup checks
 
 On every launch, the tool:
@@ -210,11 +237,11 @@ Every encryption, decryption and key creation is logged, by the command-line too
 
 What is recorded:
 
-- **Encrypt:** date and time; source file with MD5 and SHA256 hashes; output file (`.age`) with hashes; public key file and nickname.
-- **Decrypt:** date and time; source file (`.age`) with hashes; output file with hashes; private key file and nickname.
+- **Encrypt:** date and time; source file with MD5 and SHA256 hashes; output file (`.age`) with hashes; public key file and nickname, or `"method": "password"` for a password.
+- **Decrypt:** date and time; source file (`.age`) with hashes; output file with hashes; private key file and nickname, or `"method": "password"`.
 - **Key creation:** date and time; key name; public and private key files with hashes; a note that the private key is passphrase-protected.
 
-Logs contain no passphrases or key material.
+Logs contain no passphrases, passwords or key material.
 
 ### Manual key generation
 
@@ -232,12 +259,29 @@ Then copy `key1.pub` and `key1.priv` into your key store (or use `--keys` with t
 | Data | Linux | macOS | Windows |
 |---|---|---|---|
 | Key store (`.pub`, `.priv`, `keys.json`) | `~/.local/share/age-tool/keys/` | `~/Library/Application Support/age-tool/keys/` | `%AppData%\age-tool\keys\` |
+| Saved password records | `~/.local/share/age-tool/passwords/` | `~/Library/Application Support/age-tool/passwords/` | `%AppData%\age-tool\passwords\` |
 | Settings | `~/.config/age-tool/` | `~/Library/Application Support/age-tool/` | `%AppData%\age-tool\` |
 | Central audit log | `~/.local/state/age-tool/` | `~/Library/Logs/age-tool/` | `%LocalAppData%\age-tool\logs\` |
 
-On Linux, `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` are used when set. The key store folder is owner-only (`0700`), and so are the files in it (`0600`).
+On Linux, `$XDG_DATA_HOME`, `$XDG_CONFIG_HOME` and `$XDG_STATE_HOME` are used when set. The key store and passwords folders are owner-only (`0700`), and so are the files in them (`0600`).
 
-**Back up your key store.** Files encrypted for your key can only be decrypted with your private key and its passphrase.
+**Back up your key store** (the whole `age-tool` data folder, which includes saved passwords). Files encrypted for your key can only be decrypted with your private key and its passphrase.
+
+### Password rules
+
+The rule for file passwords can be made stricter in `settings.json` (in the settings folder above), for example for a team:
+
+```json
+{
+  "password_rules": {
+    "min_length": 12,
+    "require_number": true,
+    "require_special": true
+  }
+}
+```
+
+The default (and the floor) is at least 8 characters with a number and a special character. Values weaker than that are ignored, so the rule can't be switched off. The desktop app and the command-line tool both read it.
 
 ## Building from source
 
@@ -290,6 +334,13 @@ The desktop app and the command-line tool share one core package, so they enforc
 - **Attempt limit.** Decryption allows 3 passphrase attempts.
 - **Memory clearing.** Passphrases and the decrypted private key text are zeroed after use.
 
+### File passwords
+
+- **Standard format.** Password-encrypted files use age's scrypt passphrase encryption, the same as `age -p`, so they're interchangeable with the age tool.
+- **Offline guessing.** Anyone with a password-encrypted file can try passwords offline, as often as they like. age's scrypt makes each guess slow, but a weak password can still be guessed. That's why age-tool enforces the rule above, refuses common patterns, offers random-word suggestions, and reminds users to send the password separately from the file.
+- **Attempt limit.** age-tool allows 3 password attempts each time you decrypt.
+- **Saved records.** A saved password is encrypted to the user's own keys and never stored unprotected (see [Saved password records](#saved-password-records)). Opening a record needs a key passphrase, with 3 attempts.
+
 ### Private key handling
 
 - **Passphrase-protected keys only.** Unprotected private keys are never used for decryption, and are flagged at startup.
@@ -300,7 +351,7 @@ The desktop app and the command-line tool share one core package, so they enforc
 ### Audit log security
 
 - **Restrictive permissions.** Logs and receipts are owner-only (`0600`), in `0700` folders.
-- **No sensitive data.** Passphrases and key material are never logged. Logs contain only file names, paths, hashes, timestamps and nicknames.
+- **No sensitive data.** Passphrases, file passwords and key material are never logged. Logs contain only file names, paths, hashes, timestamps, nicknames and whether a key or a password was used.
 
 ### Release security
 
@@ -312,8 +363,9 @@ The desktop app and the command-line tool share one core package, so they enforc
 
 - **Never commit `.priv` files to version control**, even protected ones.
 - **Use the built-in key generation**, which never writes unprotected key material to disk.
-- **Public keys (`.pub`) and encrypted files (`.age`) are safe to share.** Only the matching private key can decrypt.
-- **Back up your key store.** A lost private key or forgotten passphrase can't be recovered.
+- **Public keys (`.pub`) and encrypted files (`.age`) are safe to share.** Only the matching private key, or the file's password, can decrypt.
+- **Send file passwords separately** from the file, for example by phone, and prefer long or suggested passwords.
+- **Back up your key store, and write your key passphrase down** somewhere physically safe. A lost private key or forgotten passphrase can't be recovered, and neither can the saved passwords it protects.
 - **`keys.json` contains only nicknames**, not key material.
 
 ## License

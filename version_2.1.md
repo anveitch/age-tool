@@ -181,14 +181,36 @@ Opening a record returns the encrypted copy, so editing the readable part can't 
 
 ## Milestone 6: Docs and 2.1.0 release
 
-- [ ] **User guide:**
+- [x] **User guide:**
   - "Encrypt with a password"
   - "Saved passwords"
   - the advice to write the key passphrase down and keep it somewhere physically safe
   - new screenshots
-- [ ] **README:** the CLI guide, the security section (offline guessing and the record protection), and the settings file rule.
+- [x] **README:** the CLI guide, the security section (offline guessing and the record protection), and the settings file rule.
 - [ ] A short usability check of the password flow, ideally with the 2.0 usability tester.
 - [ ] `2.1.0-rc.1`, fixes, then `2.1.0` (merge `v2.1` into `master`, release from there).
+
+**Progress (docs written):**
+- **User guide:**
+  - new sections "5. Encrypt with a password" (the rule, suggestions, why a password is weaker than a key, "Keep a record?") and "10. Saved passwords"
+  - "Files locked with a password" under Decrypt
+  - "Write your key's passphrase down" under Keep your key safe
+  - two new troubleshooting entries
+  - Quit on the home screen
+  - all 18 screenshots re-taken in the real window on Ubuntu 24.04, 7 of them new
+- **README:**
+  - "Encrypting with a password" and "Saved password records" in the CLI guide
+  - the Key Management menu with 8) Saved Passwords
+  - the passwords folder in "Where files are kept"
+  - "Password rules", with a `settings.json` example
+  - a "File passwords" security section, plus logging and best-practice updates
+- **Other docs:**
+  - [docs/usability-test.md](docs/usability-test.md): 3 password tasks (8–10) and a 2.1 pass criterion
+  - [docs/releases/2.1.0-rc.1.md](docs/releases/2.1.0-rc.1.md): release notes
+  - the upgrade notes mention the 2.1 menu change
+- **Screenshot tour:** shows the record and password-once dialogs over the home screen, so no other password appears behind them.
+
+**Remaining:** the usability check of the password flow, `2.1.0-rc.1`, fixes, then `2.1.0`.
 
 ## Milestone 7: Mac desktop app (2.1 if ready, otherwise 2.2)
 
@@ -227,5 +249,5 @@ Depends on the Apple Developer account (organization enrolment, started 2026-11-
 | 3. Saved password records | ✅ Complete |
 | 4. CLI | ✅ Complete |
 | 5. Desktop app | ✅ Complete |
-| 6. Docs and 2.1.0 release | Next |
+| 6. Docs and 2.1.0 release | Docs written; usability check, rc.1 and 2.1.0 pending |
 | 7. Mac desktop app | Waiting for the Apple Developer account |

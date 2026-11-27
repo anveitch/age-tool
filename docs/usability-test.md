@@ -1,4 +1,4 @@
-# age-tool 2.0 usability test (Milestone 3)
+# age-tool usability test (2.0 Milestone 3, extended for 2.1)
 
 This is a script for a 20–30 minute session with one **non-technical** person on Ubuntu. It checks the plan's "done when" test: they can generate a key, then encrypt and decrypt a file, **without help**.
 
@@ -34,6 +34,9 @@ This is a script for a 20–30 minute session with one **non-technical** person 
 | 5 | "A friend wants to send you private files. Give them what they need." | Shares the **public** key (Copy or Save a copy). They must not try to send the private key or the passphrase. |
 | 6 | "Here is your friend's key." (Paste an `age1…` key in a text file.) "Encrypt the same file for your friend." | Adds a contact, then encrypts for them. |
 | 7 | "Find out what you've done with the app today." | Opens View activity. |
+| 8 | *(2.1)* "Your neighbour doesn't use this app. Lock a copy of Holiday plans so they can open it with a password." | Chooses **A password instead of a key**, uses a suggested password or types one that meets the rule, and keeps a record. Watch whether the rule message is understood. |
+| 9 | *(2.1)* "You've forgotten that password. Find it again." | Opens **My keys > Saved passwords**, chooses **Show password**, and enters the **key's** passphrase (not the file password). |
+| 10 | *(2.1)* "Pretend you're the neighbour: open the file with the password." | Decrypts without being asked about keys, entering the file password. |
 
 ## Afterwards
 
@@ -42,8 +45,9 @@ Ask:
 - What was confusing, or made you hesitate?
 - What do you think a "public key" and a "private key" are? Check that they understand which one is safe to share.
 - If you forgot your passphrase, what would happen to your encrypted files?
+- *(2.1)* How would you give the neighbour the password? (Look for "not in the same email as the file".) What's the difference between your key's passphrase and the file's password?
 
-**Pass:** tasks 1–3 completed alone, and no attempt to share the private key or passphrase. Record the findings below, fix what came up, and repeat with a second tester if anything major changed.
+**Pass:** tasks 1–3 completed alone, and no attempt to share the private key or passphrase. For 2.1, tasks 8 and 9 completed alone too, and the file password isn't sent in the same message as the file. Record the findings below, fix what came up, and repeat with a second tester if anything major changed.
 
 ## Findings
 

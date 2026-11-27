@@ -108,8 +108,9 @@ func init() {
 			res, err := g.svc.EncryptWithPassword(holiday, pw, true)
 			if err == nil {
 				_ = os.Remove(holiday)
-				shot("17-keep-record", func() { g.afterPasswordEncrypt([]string{res.Output}, pw) })
-				shot("18-password-once", func() { g.showPasswordOnce([]string{res.Output}, pw, "") })
+				// Over the home screen, so no other password shows behind them
+				shot("17-keep-record", func() { g.showHome(); g.afterPasswordEncrypt([]string{res.Output}, pw) })
+				shot("18-password-once", func() { g.showHome(); g.showPasswordOnce([]string{res.Output}, pw, "") })
 				_, _ = g.svc.SavePasswordRecord([]string{res.Output}, pw)
 				shot("19-decrypt-password", func() { g.showDecrypt([]string{res.Output}) })
 				shot("20-password-prompt", func() { g.decryptWithPassword(res.Output, func(string) {}, func() {}) })
